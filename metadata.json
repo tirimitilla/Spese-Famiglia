@@ -1,0 +1,7 @@
+{
+  "name": "Spese Familiari AI",
+  "description": "Un gestore di spese familiari intelligente che traccia gli acquisti quotidiani, categorizza automaticamente i prodotti tramite IA e fornisce analisi visive delle abitudini di spesa.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
