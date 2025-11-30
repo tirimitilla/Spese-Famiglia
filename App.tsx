@@ -15,7 +15,26 @@ import { GoogleSheetSync } from './components/GoogleSheetSync';
 import { ShoppingListManager } from './components/ShoppingListManager';
 import { OffersFinder } from './components/OffersFinder';
 import { categorizeExpense, ReceiptData } from './services/geminiService';
-import { WalletCards, Calculator, Download, Share2, LogOut, Table, Menu } from 'lucide-react';
+import { 
+  WalletCards, 
+  Download, 
+  Share2, 
+  LogOut, 
+  Table, 
+  Menu, 
+  X,
+  Home,
+  History,
+  ShoppingCart,
+  Percent,
+  Repeat,
+  BarChart3,
+  ChevronRight,
+  CloudLightning
+} from 'lucide-react';
+
+// Define available views
+type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics';
 
 function App() {
   // --- STATE: AUTH & FAMILY ---
@@ -52,6 +71,9 @@ function App() {
   });
 
   // --- STATE: UI ---
+  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
   const [filters, setFilters] = useState<FilterState>({
     store: '',
     category: '',
@@ -62,6 +84,7 @@ function App() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showGoogleSheet, setShowGoogleSheet] = useState(false);
+  const [bgSyncStatus, setBgSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
 
   // --- PERSISTENCE ---
   useEffect(() => {
@@ -77,7 +100,11 @@ function App() {
   }, [recurringExpenses]);
 
   useEffect(() => {
-    localStorage.setItem('familyProfile', JSON.stringify(familyProfile));
+    if (familyProfile) {
+      localStorage.setItem('familyProfile', JSON.stringify(familyProfile));
+    } else {
+      localStorage.removeItem('familyProfile');
+    }
   }, [familyProfile]);
 
   useEffect(() => {
@@ -110,7 +137,6 @@ function App() {
     return recurringExpenses.filter(r => new Date(r.nextDueDate) <= today);
   }, [recurringExpenses]);
 
-  // Map product name to last used store for smart shopping list
   const productHistoryMap = useMemo(() => {
     const map: Record<string, string> = {};
     expenses.forEach(e => {
@@ -118,6 +144,61 @@ function App() {
     });
     return map;
   }, [expenses]);
+
+  // --- HELPER: SHEET NAME GENERATOR ---
+  const getMonthSheetName = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      // "novembre"
+      const month = date.toLocaleString('it-IT', { month: 'long' });
+      // "2025"
+      const year = date.getFullYear();
+      // "Novembre 2025"
+      return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
+    } catch (e) {
+      return "Spese Generiche";
+    }
+  };
+
+  // --- SYNC SERVICE ---
+  const syncToGoogleSheet = async (action: 'ADD' | 'UPDATE' | 'DELETE', expense: Expense) => {
+    if (!familyProfile?.googleSheetUrl) return;
+
+    setBgSyncStatus('syncing');
+    try {
+      // Calculate dynamic sheet name (e.g., "Novembre 2025")
+      const dynamicSheetName = getMonthSheetName(expense.date);
+      
+      // Prepare payload
+      let payloadExpense: any = { id: expense.id };
+      
+      if (action !== 'DELETE') {
+         const memberName = familyProfile.members.find(m => m.id === expense.memberId)?.name || 'Sconosciuto';
+         payloadExpense = {
+             ...expense,
+             date: new Date(expense.date).toLocaleDateString('it-IT'),
+             member: memberName
+         };
+      }
+
+      await fetch(familyProfile.googleSheetUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: action,
+            sheetName: dynamicSheetName, 
+            expense: payloadExpense
+        })
+      });
+      setBgSyncStatus('idle');
+    } catch (error) {
+      console.error("Sync failed", error);
+      setBgSyncStatus('error');
+      // Reset error after 3s
+      setTimeout(() => setBgSyncStatus('idle'), 3000);
+    }
+  };
 
   // --- HANDLERS: AUTH ---
   const handleLogin = () => setIsAuthenticated(true);
@@ -131,7 +212,15 @@ function App() {
     setFamilyProfile(updated);
   };
 
-  const handleLogout = () => setIsAuthenticated(false);
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setIsMenuOpen(false);
+  };
+
+  const handleResetProfile = () => {
+    setFamilyProfile(null);
+    setIsAuthenticated(false);
+  };
 
   // --- HANDLERS: EXPENSES ---
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string, memberId: string) => {
@@ -152,26 +241,34 @@ function App() {
 
     setExpenses(prev => [newExpense, ...prev]);
     setIsAIProcessing(false);
+    
+    // Trigger Sync
+    syncToGoogleSheet('ADD', newExpense);
   };
 
   const handleUpdateExpense = (updated: Expense) => {
     setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
+    // Trigger Sync
+    syncToGoogleSheet('UPDATE', updated);
   };
 
   const handleDeleteExpense = (id: string) => {
+    const expenseToDelete = expenses.find(e => e.id === id);
+    if (!expenseToDelete) return;
+
     if (confirm('Sei sicuro di voler eliminare questa spesa?')) {
       setExpenses(prev => prev.filter(e => e.id !== id));
+      // Trigger Sync - Pass the full expense so we know ID (and theoretically sheet, though script now searches all)
+      syncToGoogleSheet('DELETE', expenseToDelete);
     }
   };
 
   const handleScanComplete = (data: ReceiptData) => {
-    // Add store if new
     const storeExists = stores.some(s => s.name.toLowerCase() === data.store.toLowerCase());
     if (!storeExists && data.store) {
       handleAddStore(data.store);
     }
 
-    // Add expenses batch
     const newExpenses: Expense[] = data.items.map(item => ({
       id: crypto.randomUUID(),
       product: item.product,
@@ -180,11 +277,15 @@ function App() {
       total: item.total,
       store: data.store || 'Non specificato',
       date: data.date || new Date().toISOString(),
-      category: item.category, // AI provided category
-      memberId: familyProfile?.members[0]?.id // Default to first member or let user edit later
+      category: item.category,
+      memberId: familyProfile?.members[0]?.id // Default to first member
     }));
 
     setExpenses(prev => [...newExpenses, ...prev]);
+    alert(`Aggiunti ${newExpenses.length} prodotti con successo!`);
+    
+    // Sync individually
+    newExpenses.forEach(exp => syncToGoogleSheet('ADD', exp));
   };
 
   const handleExportCSV = () => {
@@ -193,7 +294,7 @@ function App() {
        const memberName = familyProfile?.members.find(m => m.id === e.memberId)?.name || 'N/A';
        return [
         new Date(e.date).toLocaleDateString(),
-        `"${e.product.replace(/"/g, '""')}"`, // Escape quotes
+        `"${e.product.replace(/"/g, '""')}"`,
         `"${e.store}"`,
         e.category,
         e.quantity,
@@ -239,7 +340,6 @@ function App() {
   };
 
   const handleProcessRecurring = async (recExpense: RecurringExpense) => {
-    // 1. Add to expenses
     await handleAddExpense(
         recExpense.product, 
         1, 
@@ -249,7 +349,6 @@ function App() {
         familyProfile?.members[0]?.id || ''
     );
 
-    // 2. Update next due date
     const nextDate = new Date(recExpense.nextDueDate);
     if (recExpense.frequency === 'settimanale') nextDate.setDate(nextDate.getDate() + 7);
     if (recExpense.frequency === 'mensile') nextDate.setMonth(nextDate.getMonth() + 1);
@@ -285,12 +384,155 @@ function App() {
       setExpenses(data.expenses);
       setStores(data.stores);
       setRecurringExpenses(data.recurringExpenses);
-      setShoppingList(data.shoppingList || []); // Support legacy sync
+      setShoppingList(data.shoppingList || []);
       setFamilyProfile(data.familyProfile);
     }
   };
 
-  // --- RENDER ---
+  // --- NAVIGATION HELPERS ---
+  const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string }> = ({ view, icon, label }) => (
+    <button 
+      onClick={() => { setCurrentView(view); setIsMenuOpen(false); }}
+      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${
+        currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100 font-medium'
+      }`}
+    >
+      {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
+      <span className="text-lg">{label}</span>
+      {currentView === view && <ChevronRight className="w-5 h-5 ml-auto text-emerald-600" />}
+    </button>
+  );
+
+  // --- RENDER CONTENT BASED ON VIEW ---
+  const renderContent = () => {
+    switch(currentView) {
+      case 'dashboard':
+        return (
+          <div className="space-y-6 animate-in fade-in">
+             <DueExpensesAlert 
+                dueExpenses={dueRecurringExpenses}
+                onProcessExpense={handleProcessRecurring}
+             />
+             <ReceiptScanner onScanComplete={handleScanComplete} />
+             <ExpenseForm 
+                stores={stores} 
+                members={familyProfile?.members || []}
+                existingProducts={Array.from(new Set(expenses.map(e => e.product)))}
+                onAddExpense={handleAddExpense} 
+                isAnalyzing={isAIProcessing}
+             />
+             <StoreManager onAddStore={handleAddStore} />
+          </div>
+        );
+      
+      case 'history':
+        return (
+          <div className="space-y-4 animate-in fade-in">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <History className="w-7 h-7 text-emerald-600" /> Storico Transazioni
+                </h2>
+                {expenses.length > 0 && (
+                    <button 
+                        onClick={handleExportCSV}
+                        className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100"
+                    >
+                        <Download className="w-5 h-5" /> Esporta
+                    </button>
+                )}
+            </div>
+            
+            <ExpenseFilters 
+                stores={stores} 
+                categories={categories}
+                filters={filters} 
+                onFilterChange={(k, v) => setFilters(prev => ({ ...prev, [k]: v }))}
+                onClearFilters={() => setFilters({ store: '', category: '', startDate: '', endDate: '' })}
+            />
+
+            {(filters.store || filters.category || filters.startDate || filters.endDate) && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4 flex justify-between items-center">
+                    <span className="text-base text-emerald-800 font-bold">Totale spese filtrate:</span>
+                    <span className="text-xl font-extrabold text-emerald-700">€{filteredTotal.toFixed(2)}</span>
+                </div>
+            )}
+
+            <ExpenseList 
+                expenses={filteredExpenses} 
+                members={familyProfile?.members || []}
+                stores={stores}
+                onDelete={handleDeleteExpense}
+                onEdit={handleUpdateExpense}
+            />
+          </div>
+        );
+
+      case 'shopping':
+        return (
+           <div className="animate-in fade-in">
+             <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <ShoppingCart className="w-7 h-7 text-orange-500" /> Lista della Spesa
+                </h2>
+             </div>
+             <ShoppingListManager 
+                items={shoppingList}
+                stores={stores}
+                productHistory={productHistoryMap}
+                onAddItem={handleAddShoppingItem}
+                onToggleItem={handleToggleShoppingItem}
+                onDeleteItem={handleDeleteShoppingItem}
+             />
+           </div>
+        );
+
+      case 'offers':
+        return (
+          <div className="animate-in fade-in">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <Percent className="w-7 h-7 text-red-500" /> Caccia alle Offerte
+                </h2>
+             </div>
+            <OffersFinder stores={stores} />
+          </div>
+        );
+
+      case 'recurring':
+        return (
+          <div className="animate-in fade-in">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <Repeat className="w-7 h-7 text-purple-600" /> Spese Ricorrenti
+                </h2>
+             </div>
+             <RecurringManager 
+                recurringExpenses={recurringExpenses}
+                stores={stores}
+                onAddRecurring={handleAddRecurring}
+                onDeleteRecurring={handleDeleteRecurring}
+             />
+          </div>
+        );
+
+      case 'analytics':
+        return (
+          <div className="animate-in fade-in">
+             <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <BarChart3 className="w-7 h-7 text-indigo-600" /> Analisi & Consigli
+                </h2>
+             </div>
+             <Analytics expenses={filteredExpenses} />
+             <AIInsight expenses={filteredExpenses} />
+          </div>
+        );
+      
+      default: return null;
+    }
+  };
+
+  // --- MAIN RENDER ---
 
   if (!isAuthenticated) {
     return (
@@ -298,60 +540,116 @@ function App() {
         existingProfile={familyProfile} 
         onLogin={handleLogin} 
         onSetupComplete={handleSetupProfile} 
+        onResetProfile={handleResetProfile}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-20 safe-area-top">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-24 safe-area-top">
       
       {/* HEADER */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <div className="bg-emerald-100 p-2 rounded-lg flex-shrink-0">
-              <WalletCards className="w-6 h-6 text-emerald-600" />
-            </div>
-            <div className="min-w-0">
-                <h1 className="font-bold text-lg leading-tight text-gray-800 truncate">Spese Familiari</h1>
-                <p className="text-xs text-gray-500 font-medium truncate">Famiglia {familyProfile?.familyName}</p>
-            </div>
+        <div className="max-w-5xl mx-auto px-4 h-18 flex items-center justify-between py-3">
+          <div className="flex items-center gap-3">
+             {/* Hamburger Button */}
+             <button 
+                onClick={() => setIsMenuOpen(true)}
+                className="p-3 -ml-2 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors active:scale-95"
+             >
+                <Menu className="w-7 h-7" />
+             </button>
+             
+             <div className="flex items-center gap-3 overflow-hidden" onClick={() => setCurrentView('dashboard')}>
+                <div className="bg-emerald-100 p-2 rounded-xl flex-shrink-0">
+                  <WalletCards className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div className="min-w-0 cursor-pointer">
+                    <h1 className="font-bold text-lg leading-tight text-gray-800 truncate">Spese Familiari</h1>
+                </div>
+             </div>
           </div>
           
-          <div className="flex items-center gap-1 md:gap-2">
-            {familyProfile && (
-                <>
-                    <button 
-                        onClick={() => setShowGoogleSheet(true)}
-                        className="p-2 text-gray-500 hover:bg-emerald-50 hover:text-emerald-600 rounded-lg transition-colors"
-                        title="Backup su Google Sheets"
-                    >
-                        <Table className="w-5 h-5" />
-                    </button>
-                    <button 
-                        onClick={() => setShowSync(true)}
-                        className="p-2 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
-                        title="Sincronizza Famiglia"
-                    >
-                        <Share2 className="w-5 h-5" />
-                    </button>
-                </>
-            )}
-            <button 
-                onClick={handleLogout}
-                className="p-2 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
-                title="Esci"
-            >
-                <LogOut className="w-5 h-5" />
-            </button>
+          <div className="flex items-center gap-2">
+             {bgSyncStatus === 'syncing' && (
+                 <div className="text-xs font-bold text-emerald-600 flex items-center gap-1 animate-pulse bg-emerald-50 px-2 py-1 rounded-full">
+                    <CloudLightning className="w-3 h-3" /> Sync
+                 </div>
+             )}
+             
+             {/* Quick Actions (visible only on desktop or large screens) */}
+             <div className="hidden md:flex items-center gap-2">
+               <button onClick={() => setCurrentView('shopping')} className="p-3 text-gray-500 hover:text-emerald-600" title="Lista Spesa"><ShoppingCart className="w-6 h-6" /></button>
+               <button onClick={() => setCurrentView('history')} className="p-3 text-gray-500 hover:text-emerald-600" title="Storico"><History className="w-6 h-6" /></button>
+             </div>
           </div>
         </div>
       </header>
 
+      {/* NAVIGATION DRAWER / MENU OVERLAY */}
+      {isMenuOpen && (
+        <div className="fixed inset-0 z-50 flex">
+           {/* Backdrop */}
+           <div 
+             className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+             onClick={() => setIsMenuOpen(false)}
+           ></div>
+           
+           {/* Drawer Content */}
+           <div className="relative w-[85%] max-w-xs bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-200">
+              <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                 <div>
+                    <h2 className="font-bold text-xl text-gray-800">Menù</h2>
+                    <p className="text-sm text-gray-500 font-medium">Famiglia {familyProfile?.familyName}</p>
+                 </div>
+                 <button onClick={() => setIsMenuOpen(false)} className="p-3 hover:bg-gray-200 rounded-full">
+                    <X className="w-6 h-6 text-gray-500" />
+                 </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                 <MenuButton view="dashboard" icon={<Home />} label="Home & Scansione" />
+                 <MenuButton view="history" icon={<History />} label="Storico Transazioni" />
+                 <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" />
+                 <MenuButton view="offers" icon={<Percent />} label="Caccia alle Offerte" />
+                 <MenuButton view="recurring" icon={<Repeat />} label="Spese Ricorrenti" />
+                 <MenuButton view="analytics" icon={<BarChart3 />} label="Analisi & Grafici" />
+                 
+                 <div className="my-6 border-t border-gray-100"></div>
+                 
+                 {/* System Actions in Menu */}
+                 <button 
+                    onClick={() => { setShowGoogleSheet(true); setIsMenuOpen(false); }}
+                    className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium"
+                 >
+                    <Table className="w-6 h-6" />
+                    <span className="text-lg">Integrazione Google Sheets</span>
+                 </button>
+
+                 <button 
+                    onClick={() => { setShowSync(true); setIsMenuOpen(false); }}
+                    className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium"
+                 >
+                    <Share2 className="w-6 h-6" />
+                    <span className="text-lg">Sincronizza Famiglia</span>
+                 </button>
+
+                 <button 
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold"
+                 >
+                    <LogOut className="w-6 h-6" />
+                    <span className="text-lg">Esci</span>
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* MODALS */}
       {showSync && familyProfile && (
         <DataSync 
-            data={{ expenses, stores, recurringExpenses, familyProfile }} 
+            data={{ expenses, stores, recurringExpenses, shoppingList, familyProfile }} 
             onImport={handleSyncImport} 
             onClose={() => setShowSync(false)} 
         />
@@ -366,110 +664,8 @@ function App() {
           />
       )}
 
-      <main className="max-w-5xl mx-auto px-2 sm:px-4 py-6">
-        
-        {/* DASHBOARD LAYOUT */}
-        {/* Mobile: Stack with Main Content FIRST. Desktop: Sidebar Left, Main Right */}
-        <div className="flex flex-col md:grid md:grid-cols-12 gap-6">
-            
-            {/* RIGHT COLUMN (Main Content) - Primary on Mobile (Order 1) */}
-            <div className="order-1 md:order-2 md:col-span-8 space-y-6">
-                
-                {/* Alerts */}
-                <DueExpensesAlert 
-                    dueExpenses={dueRecurringExpenses}
-                    onProcessExpense={handleProcessRecurring}
-                />
-
-                {/* Analytics */}
-                <div className="grid grid-cols-1 gap-6">
-                    <Analytics expenses={filteredExpenses} />
-                </div>
-
-                {/* AI Insight */}
-                <AIInsight expenses={filteredExpenses} />
-
-                {/* New Expense Inputs */}
-                <div className="grid grid-cols-1 gap-6">
-                    <ReceiptScanner onScanComplete={handleScanComplete} />
-                    <ExpenseForm 
-                        stores={stores} 
-                        members={familyProfile?.members || []}
-                        existingProducts={Array.from(new Set(expenses.map(e => e.product)))}
-                        onAddExpense={handleAddExpense} 
-                        isAnalyzing={isAIProcessing}
-                    />
-                </div>
-
-                {/* Filtered List */}
-                <div id="transaction-history">
-                    <div className="flex justify-between items-end mb-2 px-1">
-                        <h2 className="text-lg font-bold text-gray-800">Storico Transazioni</h2>
-                        {expenses.length > 0 && (
-                            <button 
-                                onClick={handleExportCSV}
-                                className="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 transition-colors"
-                            >
-                                <Download className="w-3 h-3" /> <span className="hidden sm:inline">Esporta CSV</span>
-                            </button>
-                        )}
-                    </div>
-                    
-                    <ExpenseFilters 
-                        stores={stores} 
-                        categories={categories}
-                        filters={filters} 
-                        onFilterChange={(k, v) => setFilters(prev => ({ ...prev, [k]: v }))}
-                        onClearFilters={() => setFilters({ store: '', category: '', startDate: '', endDate: '' })}
-                    />
-
-                    {/* Filtered Total Display */}
-                    {(filters.store || filters.category || filters.startDate || filters.endDate) && (
-                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 flex justify-between items-center animate-in fade-in">
-                            <span className="text-sm text-emerald-800 font-medium">Totale spese filtrate:</span>
-                            <span className="text-lg font-bold text-emerald-700">€{filteredTotal.toFixed(2)}</span>
-                        </div>
-                    )}
-
-                    <ExpenseList 
-                        expenses={filteredExpenses} 
-                        members={familyProfile?.members || []}
-                        stores={stores}
-                        onDelete={handleDeleteExpense}
-                        onEdit={handleUpdateExpense}
-                    />
-                </div>
-            </div>
-
-            {/* LEFT COLUMN (Tools) - Secondary on Mobile (Order 2) */}
-            <div className="order-2 md:order-1 md:col-span-4 space-y-6">
-                 {/* Smart Shopping List */}
-                 <ShoppingListManager 
-                    items={shoppingList}
-                    stores={stores}
-                    productHistory={productHistoryMap}
-                    onAddItem={handleAddShoppingItem}
-                    onToggleItem={handleToggleShoppingItem}
-                    onDeleteItem={handleDeleteShoppingItem}
-                 />
-
-                 {/* Offers Finder */}
-                 <OffersFinder stores={stores} />
-
-                 {/* Store Manager */}
-                 <StoreManager onAddStore={handleAddStore} />
-
-                 {/* Recurring Manager */}
-                 <RecurringManager 
-                    recurringExpenses={recurringExpenses}
-                    stores={stores}
-                    onAddRecurring={handleAddRecurring}
-                    onDeleteRecurring={handleDeleteRecurring}
-                 />
-            </div>
-
-        </div>
-
+      <main className="max-w-2xl mx-auto px-4 py-6">
+        {renderContent()}
       </main>
     </div>
   );

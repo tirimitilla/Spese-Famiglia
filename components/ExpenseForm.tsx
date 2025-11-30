@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Store, Member } from '../types';
 import { Plus, Loader2, ShoppingBag, Hash, DollarSign, Store as StoreIcon, Tag, UserCircle } from 'lucide-react';
@@ -74,19 +75,19 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
   };
 
   return (
-    <div className="bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <Plus className="w-5 h-5 text-emerald-600" />
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+      <h2 className="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
+        <Plus className="w-6 h-6 text-emerald-600" />
         Nuova Spesa
       </h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
         
-        {/* Product Input - Text-base prevents zoom on iOS */}
+        {/* Product Input - Text-base prevents zoom on iOS and is readable */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Prodotto</label>
+          <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Prodotto</label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <ShoppingBag className="h-4 w-4 text-gray-400" />
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+              <ShoppingBag className="h-5 w-5 text-gray-400" />
             </div>
             <input
               type="text"
@@ -94,7 +95,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
               list="product-suggestions"
               onChange={(e) => setProduct(e.target.value)}
               placeholder="Es. Latte, Pane"
-              className="pl-10 w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-base sm:text-sm focus:border-emerald-500 focus:ring-emerald-500 transition-colors outline-none"
+              className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all outline-none shadow-sm"
               required
               autoComplete="off"
             />
@@ -106,13 +107,13 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {/* Quantity Input */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Qt.</label>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Qt.</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                <Hash className="h-3 w-3 text-gray-400" />
+              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                <Hash className="h-4 w-4 text-gray-400" />
               </div>
               <input
                 type="number"
@@ -120,7 +121,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
                 step="any"
                 value={quantity}
                 onChange={handleQuantityChange}
-                className="pl-7 w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-base sm:text-sm focus:border-emerald-500 focus:ring-emerald-500 outline-none"
+                className="pl-8 w-full rounded-xl border border-gray-300 bg-gray-50 p-3 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none shadow-sm"
                 required
               />
             </div>
@@ -128,10 +129,10 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
 
           {/* Unit Price Input */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase mb-1 whitespace-nowrap">Prezzo Unit.</label>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1 whitespace-nowrap">Prezzo Un.</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                <Tag className="h-3 w-3 text-gray-400" />
+              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                <Tag className="h-4 w-4 text-gray-400" />
               </div>
               <input
                 type="number"
@@ -140,17 +141,17 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
                 value={unitPrice}
                 onChange={handleUnitPriceChange}
                 placeholder="0.00"
-                className="pl-7 w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-base sm:text-sm focus:border-emerald-500 focus:ring-emerald-500 outline-none"
+                className="pl-8 w-full rounded-xl border border-gray-300 bg-gray-50 p-3 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none shadow-sm"
               />
             </div>
           </div>
 
           {/* Total Price Input */}
           <div>
-            <label className="block text-xs font-medium text-emerald-600 font-bold uppercase mb-1">Totale</label>
+            <label className="block text-xs font-bold text-emerald-600 uppercase mb-1.5 ml-1">Totale</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                <DollarSign className="h-3 w-3 text-emerald-600" />
+              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                <DollarSign className="h-4 w-4 text-emerald-600" />
               </div>
               <input
                 type="number"
@@ -159,25 +160,25 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
                 value={total}
                 onChange={handleTotalChange}
                 placeholder="0.00"
-                className="pl-7 w-full rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 text-base sm:text-sm font-bold text-emerald-700 focus:border-emerald-500 focus:ring-emerald-500 outline-none"
+                className="pl-8 w-full rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-base font-bold text-emerald-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none shadow-sm"
                 required
               />
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Store Select */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Negozio</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Negozio</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <StoreIcon className="h-4 w-4 text-gray-400" />
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <StoreIcon className="h-5 w-5 text-gray-400" />
                   </div>
                 <select
                   value={selectedStore}
                   onChange={(e) => setSelectedStore(e.target.value)}
-                  className="pl-10 w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-base sm:text-sm focus:border-emerald-500 focus:ring-emerald-500 outline-none appearance-none"
+                  className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none appearance-none shadow-sm"
                 >
                   {stores.map((store) => (
                     <option key={store.id} value={store.name}>
@@ -185,23 +186,23 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
                     </option>
                   ))}
                 </select>
-                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                 </div>
               </div>
             </div>
 
             {/* Member Select */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Chi paga?</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Chi paga?</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <UserCircle className="h-4 w-4 text-gray-400" />
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <UserCircle className="h-5 w-5 text-gray-400" />
                   </div>
                 <select
                   value={selectedMemberId}
                   onChange={(e) => setSelectedMemberId(e.target.value)}
-                  className="pl-10 w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-base sm:text-sm focus:border-emerald-500 focus:ring-emerald-500 outline-none appearance-none"
+                  className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none appearance-none shadow-sm"
                 >
                   {members.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -209,8 +210,8 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
                     </option>
                   ))}
                 </select>
-                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                 </div>
               </div>
             </div>
@@ -220,11 +221,11 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
         <button
           type="submit"
           disabled={isAnalyzing}
-          className="w-full flex justify-center items-center gap-2 py-3.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+          className="w-full flex justify-center items-center gap-2 py-4 px-4 border border-transparent rounded-xl shadow-md text-base font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
         >
           {isAnalyzing ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-5 h-5 animate-spin" />
               Analisi con IA in corso...
             </>
           ) : (

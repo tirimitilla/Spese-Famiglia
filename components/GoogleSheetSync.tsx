@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Expense, FamilyProfile } from '../types';
-import { Table, Save, HelpCircle, CheckCircle, AlertCircle, X, Copy, ExternalLink, Loader2, UploadCloud } from 'lucide-react';
+import { Table, HelpCircle, CheckCircle, X, Copy, Loader2, UploadCloud } from 'lucide-react';
 
 interface GoogleSheetSyncProps {
   expenses: Expense[];
@@ -10,42 +10,104 @@ interface GoogleSheetSyncProps {
   onClose: () => void;
 }
 
+// SCRIPT AGGIORNATO: Gestione Fogli Mensili e Ricerca Globale
 const APPS_SCRIPT_CODE = `
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
-  var sheetName = data.sheetName || "Spese";
+  var action = data.action;   // "ADD", "UPDATE", "DELETE"
+  var expense = data.expense; // Oggetto spesa
+  var targetSheetName = data.sheetName; // Es. "Novembre 2025" (usato solo per ADD)
+  
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(sheetName);
   
-  if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-    sheet.appendRow(["Data", "Prodotto", "Negozio", "Categoria", "Quantità", "Prezzo Unit.", "Totale", "Membro"]);
-    sheet.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#E6F4EA");
-  }
-  
-  // Opzionale: Pulisci il foglio prima di riscrivere (per evitare duplicati in sync totale)
-  // Commenta le due righe sotto se vuoi solo accodare
-  sheet.clearContents(); 
-  sheet.appendRow(["Data", "Prodotto", "Negozio", "Categoria", "Quantità", "Prezzo Unit.", "Totale", "Membro"]);
+  // --- OPERAZIONE: AGGIUNGI (ADD) ---
+  // Aggiunge sempre nel foglio specifico del mese/anno
+  if (action === "ADD") {
+    var sheet = ss.getSheetByName(targetSheetName);
+    
+    // Se il foglio del mese non esiste, crealo e metti l'intestazione
+    if (!sheet) {
+      sheet = ss.insertSheet(targetSheetName);
+      sheet.appendRow(["ID", "Data", "Prodotto", "Negozio", "Categoria", "Quantità", "Prezzo Unit.", "Totale", "Membro"]);
+      sheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#E6F4EA");
+    }
 
-  if (data.expenses && data.expenses.length > 0) {
-    var rows = data.expenses.map(function(ex) {
-      return [ex.date, ex.product, ex.store, ex.category, ex.quantity, ex.unitPrice, ex.total, ex.member];
-    });
-    sheet.getRange(2, 1, rows.length, 8).setValues(rows);
+    sheet.appendRow([
+      expense.id,
+      expense.date,
+      expense.product,
+      expense.store,
+      expense.category,
+      expense.quantity,
+      expense.unitPrice,
+      expense.total,
+      expense.member
+    ]);
+    return response("Added to " + targetSheetName);
   }
-  
-  return ContentService.createTextOutput(JSON.stringify({result: "success"})).setMimeType(ContentService.MimeType.JSON);
+
+  // --- OPERAZIONI: MODIFICA (UPDATE) o ELIMINA (DELETE) ---
+  // Cerca l'ID in TUTTI i fogli, perché potrei modificare una spesa di un mese passato
+  if (action === "UPDATE" || action === "DELETE") {
+    var sheets = ss.getSheets();
+    var found = false;
+
+    for (var i = 0; i < sheets.length; i++) {
+      var sheet = sheets[i];
+      var lastRow = sheet.getLastRow();
+      if (lastRow < 2) continue; // Foglio vuoto o solo header
+
+      // Leggi colonna A (ID)
+      var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
+      var rowIndex = ids.indexOf(expense.id);
+
+      if (rowIndex !== -1) {
+        var actualRow = rowIndex + 2; // +2 offset header/array
+
+        if (action === "DELETE") {
+          sheet.deleteRow(actualRow);
+          found = true;
+          break; // Trovato ed eliminato, esco
+        } 
+        
+        if (action === "UPDATE") {
+          // Se la data è cambiata drasticamente (cambio mese), dovremmo spostare la riga.
+          // Per semplicità, aggiorniamo i dati. Se l'utente vuole spostare di mese, 
+          // idealmente dovrebbe cancellare e ricreare, ma qui aggiorniamo in loco.
+          var rowValues = [[
+            expense.date,
+            expense.product,
+            expense.store,
+            expense.category,
+            expense.quantity,
+            expense.unitPrice,
+            expense.total,
+            expense.member
+          ]];
+          sheet.getRange(actualRow, 2, 1, 8).setValues(rowValues);
+          
+          // Opzionale: rinominare il foglio se vuoto? No, troppo rischioso.
+          found = true;
+          break;
+        }
+      }
+    }
+    
+    if (found) return response(action + " success");
+    return response("ID not found in any sheet");
+  }
+
+  return response("No action specified");
+}
+
+function response(msg) {
+  return ContentService.createTextOutput(JSON.stringify({result: msg})).setMimeType(ContentService.MimeType.JSON);
 }
 `;
 
 export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, familyProfile, onUpdateProfile, onClose }) => {
   const [step, setStep] = useState<'config' | 'sync'>(familyProfile.googleSheetUrl ? 'sync' : 'config');
   const [scriptUrl, setScriptUrl] = useState(familyProfile.googleSheetUrl || '');
-  const [sheetName, setSheetName] = useState(() => {
-    const date = new Date();
-    return date.toLocaleString('it-IT', { month: 'long', year: 'numeric' }); // Es: "ottobre 2023"
-  });
   const [isSyncing, setIsSyncing] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -58,36 +120,40 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, fami
     setStep('sync');
   };
 
-  const handleSync = async () => {
+  const handleBulkSync = async () => {
     if (!scriptUrl) return;
+    if (!confirm("Questa operazione invierà TUTTE le spese attuali una per una per organizzarle nei fogli mensili corretti. Potrebbe richiedere del tempo. Continuare?")) return;
+
     setIsSyncing(true);
     setStatus('idle');
 
     try {
-      const payload = {
-        sheetName: sheetName,
-        expenses: expenses.map(e => ({
-          ...e,
-          date: new Date(e.date).toLocaleDateString('it-IT'), // Format date for sheet
-          member: familyProfile.members.find(m => m.id === e.memberId)?.name || 'Sconosciuto'
-        }))
-      };
+      // Per il bulk sync con la logica mensile, inviamo le spese una per una come ADD
+      // È più lento ma garantisce che finiscano nel foglio giusto (Mese Anno)
+      for (const expense of expenses) {
+        const dateObj = new Date(expense.date);
+        const month = dateObj.toLocaleString('it-IT', { month: 'long' });
+        const year = dateObj.getFullYear();
+        const sheetName = `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`; // Es. "Novembre 2025"
 
-      // Google Apps Script Web Apps require 'no-cors' mode usually for simple POSTs from browser,
-      // but to get response we might face CORS issues. 
-      // Usually 'no-cors' is safest but we can't read response. 
-      // Let's try standard fetch first, if CORS fails we assume success if no network error.
-      
-      await fetch(scriptUrl, {
-        method: 'POST',
-        mode: 'no-cors', 
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
+        const payload = {
+            action: "ADD",
+            sheetName: sheetName,
+            expense: {
+                ...expense,
+                date: new Date(expense.date).toLocaleDateString('it-IT'),
+                member: familyProfile.members.find(m => m.id === expense.memberId)?.name || 'Sconosciuto'
+            }
+        };
 
-      // Since mode is no-cors, we can't check response.ok. We assume if fetch didn't throw, it worked.
+        await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+      }
+
       setStatus('success');
     } catch (error) {
       console.error(error);
@@ -110,7 +176,7 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, fami
         <div className="bg-emerald-700 text-white p-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Table className="w-5 h-5 text-emerald-100" />
-            <h2 className="font-bold text-lg">Backup su Google Sheets</h2>
+            <h2 className="font-bold text-lg">Integrazione Google Sheets</h2>
           </div>
           <button onClick={onClose} className="text-emerald-200 hover:text-white">
             <X className="w-6 h-6" />
@@ -124,15 +190,15 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, fami
                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                         <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-2">
                             <HelpCircle className="w-4 h-4" />
-                            Prima Configurazione
+                            Aggiornamento Necessario
                         </h3>
+                        <p className="text-sm text-blue-700 mb-2">
+                          Ho aggiornato lo script per salvare le spese <strong>divise per Mese e Anno</strong> (es. "Novembre 2025").
+                        </p>
                         <ol className="list-decimal list-inside text-sm text-blue-700 space-y-2">
-                            <li>Vai su <a href="https://sheets.new" target="_blank" rel="noreferrer" className="underline font-bold">sheets.new</a> e crea un nuovo foglio.</li>
-                            <li>Clicca su <strong>Estensioni</strong> {'>'} <strong>Apps Script</strong>.</li>
-                            <li>Copia il codice qui sotto e incollalo nell'editor, cancellando tutto il resto.</li>
-                            <li>Clicca su <strong>Pubblica</strong> {'>'} <strong>Implementa come applicazione web</strong>.</li>
-                            <li>Imposta "Chi ha accesso" su <strong>Chiunque (Anyone)</strong>. (Importante!)</li>
-                            <li>Copia l'URL generato e incollalo qui sotto.</li>
+                            <li>Vai su <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold">script.google.com</a>.</li>
+                            <li>Sostituisci tutto il codice vecchio con quello qui sotto.</li>
+                            <li><strong>IMPORTANTE:</strong> Clicca su "Pubblica" {'>'} "Nuova implementazione".</li>
                         </ol>
                     </div>
 
@@ -171,52 +237,22 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, fami
                     <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100 flex items-start gap-3">
                         <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                         <div>
-                            <h3 className="font-bold text-emerald-800 text-sm">Collegamento Attivo</h3>
+                            <h3 className="font-bold text-emerald-800 text-sm">Sincronizzazione Attiva</h3>
                             <p className="text-xs text-emerald-600 break-all mt-1">{scriptUrl}</p>
-                            <button onClick={() => setStep('config')} className="text-xs underline text-emerald-700 mt-2">Cambia URL</button>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Le nuove spese verranno salvate automaticamente in fogli nominati come "Mese Anno" (es. Novembre 2025).
+                            </p>
+                            <button onClick={() => setStep('config')} className="text-xs underline text-emerald-700 mt-2">Aggiorna Script URL</button>
                         </div>
                     </div>
-
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Nome del Foglio (Tab)</label>
-                        <p className="text-xs text-gray-500 mb-2">Dove vuoi salvare i dati? Se non esiste verrà creato.</p>
-                        <input 
-                            type="text" 
-                            value={sheetName}
-                            onChange={(e) => setSheetName(e.target.value)}
-                            className="w-full rounded-lg border border-gray-300 p-3 text-sm focus:border-emerald-500 outline-none"
-                        />
-                    </div>
-
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-2">Verranno inviati <strong>{expenses.length}</strong> record.</p>
-                        <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-                            <li>I dati esistenti nel foglio "{sheetName}" verranno sovrascritti.</li>
-                            <li>Ideale per backup mensili o reportistica.</li>
-                        </ul>
-                    </div>
-
-                    {status === 'success' && (
-                        <div className="bg-green-100 text-green-800 p-3 rounded-lg flex items-center gap-2 text-sm font-medium animate-in fade-in">
-                            <CheckCircle className="w-4 h-4" />
-                            Dati inviati con successo!
-                        </div>
-                    )}
-                    
-                    {status === 'error' && (
-                        <div className="bg-red-100 text-red-800 p-3 rounded-lg flex items-center gap-2 text-sm font-medium animate-in fade-in">
-                            <AlertCircle className="w-4 h-4" />
-                            Errore durante l'invio. Controlla l'URL.
-                        </div>
-                    )}
 
                     <button 
-                        onClick={handleSync}
-                        disabled={isSyncing || !sheetName}
-                        className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                        onClick={handleBulkSync}
+                        disabled={isSyncing}
+                        className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 border border-gray-200"
                     >
                         {isSyncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
-                        {isSyncing ? 'Invio in corso...' : 'Invia Dati a Google Sheets'}
+                        {isSyncing ? 'Invio in corso...' : 'Invia tutto lo storico (organizzato per mesi)'}
                     </button>
                 </div>
             )}

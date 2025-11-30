@@ -1,16 +1,18 @@
+
 import React, { useState } from 'react';
 import { FamilyProfile, Member } from '../types';
-import { ShieldCheck, Users, ArrowRight, Plus, UserPlus, Lock } from 'lucide-react';
+import { ShieldCheck, Users, ArrowRight, Plus, UserPlus, Lock, HelpCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface LoginScreenProps {
   existingProfile: FamilyProfile | null;
   onLogin: () => void;
   onSetupComplete: (profile: FamilyProfile) => void;
+  onResetProfile: () => void;
 }
 
 const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EC4899', '#8B5CF6', '#6366F1'];
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLogin, onSetupComplete }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLogin, onSetupComplete, onResetProfile }) => {
   // Setup State
   const [familyName, setFamilyName] = useState('');
   const [pin, setPin] = useState('');
@@ -23,6 +25,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
   // Login State
   const [inputPin, setInputPin] = useState('');
   const [error, setError] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleAddMember = () => {
     if (!newMemberName.trim()) return;
@@ -55,6 +58,47 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
       setInputPin('');
     }
   };
+
+  const confirmReset = () => {
+      onResetProfile();
+      setShowResetConfirm(false);
+  };
+
+  // MODE: RESET CONFIRMATION
+  if (showResetConfirm) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 animate-in fade-in">
+            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-gray-100 text-center">
+                <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <AlertTriangle className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Reset Profilo Sicurezza</h2>
+                <p className="text-gray-600 mb-6 text-sm leading-relaxed">
+                    Stai per resettare il PIN e il Nome Famiglia. <br/>
+                    <strong>Non preoccuparti:</strong> i tuoi dati (spese, storico e liste) 
+                    <span className="text-emerald-600 font-bold"> NON verranno cancellati</span> e rimarranno su questo dispositivo.
+                    <br/><br/>
+                    Dopo il reset, dovrai creare un nuovo profilo familiare.
+                </p>
+                
+                <div className="space-y-3">
+                    <button 
+                        onClick={confirmReset}
+                        className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                    >
+                        <RefreshCw className="w-5 h-5" /> Resetta Profilo
+                    </button>
+                    <button 
+                        onClick={() => setShowResetConfirm(false)}
+                        className="w-full bg-gray-100 text-gray-700 font-bold py-3 px-6 rounded-xl hover:bg-gray-200 transition-colors"
+                    >
+                        Annulla
+                    </button>
+                </div>
+            </div>
+        </div>
+      );
+  }
 
   // MODE: LOGIN
   if (existingProfile) {
@@ -89,6 +133,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
             >
               Accedi <ArrowRight className="w-5 h-5" />
+            </button>
+
+            <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                className="text-sm text-gray-400 hover:text-emerald-600 mt-4 flex items-center justify-center gap-1 w-full pt-4 border-t border-gray-50"
+            >
+                <HelpCircle className="w-4 h-4" /> PIN Dimenticato?
             </button>
           </form>
         </div>

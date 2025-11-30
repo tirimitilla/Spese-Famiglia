@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SyncData, Expense, Store, RecurringExpense, FamilyProfile } from '../types';
+import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem } from '../types';
 import { Share2, Copy, Download, Upload, CheckCircle, AlertCircle, X } from 'lucide-react';
 
 interface DataSyncProps {
@@ -7,6 +7,7 @@ interface DataSyncProps {
     expenses: Expense[];
     stores: Store[];
     recurringExpenses: RecurringExpense[];
+    shoppingList: ShoppingItem[];
     familyProfile: FamilyProfile | null;
   };
   onImport: (data: SyncData) => void;
