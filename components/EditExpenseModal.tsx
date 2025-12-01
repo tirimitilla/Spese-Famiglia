@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Expense, Store, Member } from '../types';
-import { Save, X, Calculator } from 'lucide-react';
+import { Save, X } from 'lucide-react';
 
 interface EditExpenseModalProps {
   expense: Expense;

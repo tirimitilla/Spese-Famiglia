@@ -109,7 +109,7 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ expenses, fami
   const [step, setStep] = useState<'config' | 'sync'>(familyProfile.googleSheetUrl ? 'sync' : 'config');
   const [scriptUrl, setScriptUrl] = useState(familyProfile.googleSheetUrl || '');
   const [isSyncing, setIsSyncing] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [, setStatus] = useState<'idle' | 'success' | 'error'>('idle'); // Fixed unused status variable
 
   const handleSaveUrl = () => {
     if (!scriptUrl.trim().startsWith('https://script.google.com')) {

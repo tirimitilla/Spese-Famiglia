@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { FamilyProfile, Member } from '../types';
-import { ShieldCheck, Users, ArrowRight, Plus, UserPlus, Lock, HelpCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Users, ArrowRight, UserPlus, Lock, HelpCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface LoginScreenProps {
   existingProfile: FamilyProfile | null;

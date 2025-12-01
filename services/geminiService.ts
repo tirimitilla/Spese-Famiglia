@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
 // Initialize the client. API_KEY must be set in Vercel environment variables.
@@ -42,32 +43,19 @@ export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> 
   }
 };
 
-// --- OFFERS FINDER (Grounding) ---
+// --- OFFERS FINDER (Simple Link Generation) ---
 export const findFlyerOffers = async (city: string, stores: string[]): Promise<FlyerOffer[]> => {
-  try {
-    // Requires gemini-3-pro for Google Search tool
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview', 
-      contents: `Find the current weekly flyers/offers for these stores in ${city}: ${stores.join(', ')}. 
-      Return a JSON array where each object has:
-      - storeName (string)
-      - flyerLink (string URL to the flyer if found)
-      - validUntil (string date or 'N/A')
-      - topOffers (array of strings, list 3 best deals)
-      
-      Do not add markdown formatting.`,
-      config: {
-        tools: [{ googleSearch: {} }],
-      }
-    });
-
-    const cleanJson = cleanJsonString(response.text || "[]");
-    const offers = JSON.parse(cleanJson);
-    return Array.isArray(offers) ? offers : [];
-  } catch (error) {
-    console.error("Offers search failed:", error);
-    return [];
-  }
+    // Generate static Google Search links for flyers
+    // This avoids API permission issues and is always reliable
+    const offers: FlyerOffer[] = stores.map(store => ({
+        storeName: store,
+        flyerLink: `https://www.google.com/search?q=volantino+${encodeURIComponent(store)}+${encodeURIComponent(city)}+attuale`,
+        validUntil: 'Vedi volantino',
+        topOffers: [] // No extraction without advanced API
+    }));
+    
+    // Simulate async delay
+    return new Promise(resolve => setTimeout(() => resolve(offers), 500));
 };
 
 // --- RECEIPT SCANNING ---

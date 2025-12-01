@@ -77,7 +77,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ expenses }) => {
               paddingAngle={5}
               dataKey="value"
             >
-              {storeData.map((entry, index) => (
+              {storeData.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
             </Pie>

@@ -1,5 +1,5 @@
+
 import React, { useState } from 'react';
-import { Store } from '../types';
 import { PlusCircle, Store as StoreIcon } from 'lucide-react';
 
 interface StoreManagerProps {

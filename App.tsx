@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, FlyerOffer, OfferPreferences } from './types';
+import { DEFAULT_STORES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, OfferPreferences } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -31,8 +31,7 @@ import {
   Repeat,
   BarChart3,
   ChevronRight,
-  CloudLightning,
-  Bell
+  CloudLightning
 } from 'lucide-react';
 
 // Define available views
@@ -188,7 +187,7 @@ function App() {
       const matchStartDate = filters.startDate ? new Date(expense.date) >= new Date(filters.startDate) : true;
       const matchEndDate = filters.endDate ? new Date(expense.date) <= new Date(filters.endDate + 'T23:59:59') : true;
       return matchStore && matchCategory && matchStartDate && matchEndDate;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a, b) => b.date.localeCompare(a.date));
   }, [expenses, filters]);
 
   const filteredTotal = useMemo(() => {
@@ -287,12 +286,6 @@ function App() {
         selectedStores: stores,
         hasEnabledNotifications: notificationsEnabled
     }));
-  };
-
-  const handleViewOffers = () => {
-    setCurrentView('offers');
-    setNewOffersCount(0); // Reset badge when viewing
-    setIsMenuOpen(false);
   };
 
   // --- HANDLERS: EXPENSES ---
