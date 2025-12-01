@@ -1,114 +1,76 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
+// Initialize the client. API_KEY must be set in Vercel environment variables.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// --- UTILS ---
+const cleanJsonString = (str: string) => {
+  return str.replace(/```json\n?|```/g, '').trim();
+};
+
+// --- CATEGORIZATION ---
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Categorizza il seguente prodotto acquistato in una singola parola o breve frase (max 2 parole). 
-      Esempi di categorie: Alimentari, Casa, Salute, Trasporti, Intrattenimento, Abbigliamento, Tecnologia, Altro.
-      
-      Prodotto: ${product}
-      Negozio: ${store}`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            category: {
-              type: Type.STRING,
-            },
-          },
-          required: ["category"],
-        },
-      },
+      model: 'gemini-2.5-flash',
+      contents: `Categorize the product "${product}" bought at "${store}" into exactly one of these categories: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Return ONLY the category name.`,
     });
-
-    const jsonStr = response.text;
-    if (!jsonStr) return "Altro";
-    
-    const data = JSON.parse(jsonStr);
-    return data.category || "Altro";
+    return response.text?.trim() || "Generale";
   } catch (error) {
-    console.error("Error categorizing expense:", error);
-    return "Non categorizzato";
+    console.error("AI Categorization failed:", error);
+    return "Generale";
   }
 };
 
+// --- SPENDING ANALYSIS ---
 export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> => {
-  if (expenses.length === 0) return "Nessuna spesa registrata per generare un'analisi.";
-
-  // Summarize data for the prompt to save tokens
-  const summary = expenses.map(e => `${e.product} (${e.category}): €${e.total} presso ${e.store}`).join("\n");
-
+  if (expenses.length === 0) return "Nessuna spesa da analizzare.";
+  
+  // Simplify data for token limit
+  const summary = expenses.map(e => `${e.date.split('T')[0]}: ${e.product} (€${e.total})`).join('\n');
+  
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Analizza brevemente le seguenti spese familiari. Fornisci 3 consigli puntati per risparmiare o notare trend interessanti. Sii amichevole e conciso. Rispondi in Italiano.
-      
-      Lista Spese:
-      ${summary}`,
+      model: 'gemini-2.5-flash',
+      contents: `Analizza queste spese familiari recenti e fornisci 3 consigli brevi e pratici in italiano per risparmiare. Sii diretto e amichevole.\n\n${summary}`,
     });
-
-    return response.text || "Impossibile generare l'analisi al momento.";
+    return response.text || "Analisi non disponibile al momento.";
   } catch (error) {
-    console.error("Error analyzing expenses:", error);
-    return "Errore durante l'analisi delle spese.";
+    console.error("AI Analysis failed:", error);
+    return "Impossibile generare l'analisi al momento.";
   }
 };
 
+// --- OFFERS FINDER (Grounding) ---
 export const findFlyerOffers = async (city: string, stores: string[]): Promise<FlyerOffer[]> => {
-  if (!city || stores.length === 0) return [];
-
-  const storeList = stores.join(", ");
-  const prompt = `Trova i link ai volantini attuali o le offerte della settimana per i seguenti negozi nella città di ${city}: ${storeList}.
-  
-  Restituisci ESCLUSIVAMENTE un array JSON valido (senza markdown) con la seguente struttura per ogni negozio trovato:
-  [
-    {
-      "storeName": "Nome Negozio",
-      "flyerLink": "URL diretto al volantino o alla pagina offerte",
-      "validUntil": "Data scadenza offerte (se trovata, altrimenti stringa vuota)",
-      "topOffers": ["Offerta 1", "Offerta 2"]
-    }
-  ]
-  
-  Se non trovi nulla per un negozio, ignoralo.`;
-
   try {
-    // We use googleSearch tool for grounding
+    // Requires gemini-3-pro for Google Search tool
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+      model: 'gemini-3-pro-image-preview', 
+      contents: `Find the current weekly flyers/offers for these stores in ${city}: ${stores.join(', ')}. 
+      Return a JSON array where each object has:
+      - storeName (string)
+      - flyerLink (string URL to the flyer if found)
+      - validUntil (string date or 'N/A')
+      - topOffers (array of strings, list 3 best deals)
+      
+      Do not add markdown formatting.`,
       config: {
         tools: [{ googleSearch: {} }],
-        // Note: responseMimeType JSON is often incompatible with googleSearch in some contexts, 
-        // but we instructed the model in text to return JSON. We'll clean it manually.
-      },
+      }
     });
 
-    const text = response.text;
-    if (!text) return [];
-
-    const cleanedJson = cleanJsonString(text);
-    try {
-      const offers = JSON.parse(cleanedJson) as FlyerOffer[];
-      return offers;
-    } catch (e) {
-      console.error("Failed to parse flyer JSON", e);
-      return [];
-    }
-
+    const cleanJson = cleanJsonString(response.text || "[]");
+    const offers = JSON.parse(cleanJson);
+    return Array.isArray(offers) ? offers : [];
   } catch (error) {
-    console.error("Error finding flyers:", error);
+    console.error("Offers search failed:", error);
     return [];
   }
 };
 
-// Interface for Receipt Response
+// --- RECEIPT SCANNING ---
 export interface ReceiptItem {
   product: string;
   quantity: number;
@@ -129,91 +91,55 @@ export interface ReceiptScanResult {
   error?: string;
 }
 
-// Helper to clean JSON string from Markdown code blocks
-const cleanJsonString = (text: string): string => {
-  let cleaned = text.trim();
-  // Remove ```json and ``` wrapper if present
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```/, '').replace(/```$/, '');
-  }
-  return cleaned.trim();
-};
-
 export const parseReceiptImage = async (base64Image: string): Promise<ReceiptScanResult> => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: base64Image
-          }
-        },
-        {
-          text: `Analizza questo scontrino. Estrai il nome del negozio, la data (formato YYYY-MM-DD, se non c'è usa oggi) e la lista degli articoli acquistati.
-          
-          Per ogni articolo:
-          1. Estrai il nome del prodotto.
-          2. Estrai la quantità (se non specificata, assumi 1).
-          3. Estrai il prezzo unitario e il prezzo totale.
-          4. ASSEGNA UNA CATEGORIA al prodotto (es: Alimentari, Casa, Abbigliamento, etc.).
-          
-          Se l'immagine è sfocata o non è uno scontrino, restituisci un array di items vuoto.
-          Ignora sconti, subtotali parziali o righe non pertinenti.
-          Rispondi SOLO con JSON.`
-        }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            store: { type: Type.STRING },
-            date: { type: Type.STRING },
-            items: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  product: { type: Type.STRING },
-                  quantity: { type: Type.NUMBER },
-                  unitPrice: { type: Type.NUMBER },
-                  total: { type: Type.NUMBER },
-                  category: { type: Type.STRING },
-                },
-                required: ["product", "total", "category"]
-              }
+      model: 'gemini-2.5-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: base64Image
             }
           },
-          required: ["store", "items"]
-        }
+          {
+            text: `Analyze this receipt image. Extract the store name, date, and list of items purchased.
+            For each item extract: product name, quantity (default to 1 if missing), unit price, and total price.
+            Also assign a category to each item (Alimentari, Casa, etc.).
+            
+            Return the result in this JSON format:
+            {
+              "store": "Store Name",
+              "date": "YYYY-MM-DD",
+              "items": [
+                { "product": "Item Name", "quantity": 1, "unitPrice": 10.00, "total": 10.00, "category": "Category" }
+              ]
+            }
+            Return ONLY raw JSON, no markdown blocks.`
+          }
+        ]
       }
     });
 
     const text = response.text;
-    if (!text) {
-      return { success: false, error: "L'IA non ha restituito alcun dato." };
+    if (!text) throw new Error("Empty response from AI");
+
+    const cleanJson = cleanJsonString(text);
+    const data: ReceiptData = JSON.parse(cleanJson);
+
+    // Basic Validation
+    if (!data.items || !Array.isArray(data.items)) {
+       throw new Error("Invalid JSON structure received");
     }
 
-    try {
-      const cleanedText = cleanJsonString(text);
-      const data = JSON.parse(cleanedText) as ReceiptData;
-
-      if (!data.items || data.items.length === 0) {
-         return { success: false, error: "Non sono riuscito a identificare prodotti nello scontrino. Prova con una foto più nitida." };
-      }
-
-      return { success: true, data };
-    } catch (parseError) {
-      console.error("JSON Parse error:", parseError, text);
-      return { success: false, error: "Errore nel formato dei dati ricevuti. Riprova." };
-    }
+    return { success: true, data };
 
   } catch (error) {
-    console.error("Error parsing receipt:", error);
-    return { success: false, error: "Errore di comunicazione con il servizio IA." };
+    console.error("Receipt parsing error:", error);
+    return { 
+      success: false, 
+      error: "Non sono riuscito a leggere lo scontrino. Assicurati che la foto sia ben illuminata e a fuoco, oppure inserisci i dati manualmente." 
+    };
   }
 };

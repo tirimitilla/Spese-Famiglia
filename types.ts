@@ -58,6 +58,13 @@ export interface FlyerOffer {
   topOffers: string[];
 }
 
+export interface OfferPreferences {
+  city: string;
+  selectedStores: string[];
+  lastCheckDate: number; // Timestamp
+  hasEnabledNotifications: boolean;
+}
+
 // Payload for the Sync functionality
 export interface SyncData {
   expenses: Expense[];

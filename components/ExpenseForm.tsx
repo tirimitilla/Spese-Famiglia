@@ -7,11 +7,12 @@ interface ExpenseFormProps {
   stores: Store[];
   members: Member[];
   existingProducts: string[];
+  productHistory: Record<string, string>; // Map: Product Name -> Last Store Name
   onAddExpense: (product: string, quantity: number, unitPrice: number, total: number, store: string, memberId: string) => Promise<void>;
   isAnalyzing: boolean;
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, existingProducts, onAddExpense, isAnalyzing }) => {
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, existingProducts, productHistory, onAddExpense, isAnalyzing }) => {
   const [product, setProduct] = useState('');
   const [quantity, setQuantity] = useState<string>('1');
   const [unitPrice, setUnitPrice] = useState<string>('');
@@ -24,6 +25,22 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
     if (!selectedStore && stores.length > 0) setSelectedStore(stores[0].name);
     if (!selectedMemberId && members.length > 0) setSelectedMemberId(members[0].id);
   }, [stores, members]);
+
+  // Handle product input change and auto-suggest store
+  const handleProductChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setProduct(val);
+
+    // Auto-select store if product exists in history
+    // We check if the suggested store actually exists in the current stores list to avoid errors
+    if (productHistory[val]) {
+        const suggestedStore = productHistory[val];
+        const storeExists = stores.some(s => s.name === suggestedStore);
+        if (storeExists) {
+            setSelectedStore(suggestedStore);
+        }
+    }
+  };
 
   // Auto-calculate total when quantity or unit price changes
   const updateCalculations = (qtyStr: string, priceStr: string) => {
@@ -93,7 +110,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
               type="text"
               value={product}
               list="product-suggestions"
-              onChange={(e) => setProduct(e.target.value)}
+              onChange={handleProductChange}
               placeholder="Es. Latte, Pane"
               className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all outline-none shadow-sm"
               required

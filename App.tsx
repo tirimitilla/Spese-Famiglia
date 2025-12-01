@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, FlyerOffer } from './types';
+import { DEFAULT_STORES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, FlyerOffer, OfferPreferences } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -14,7 +15,7 @@ import { DataSync } from './components/DataSync';
 import { GoogleSheetSync } from './components/GoogleSheetSync';
 import { ShoppingListManager } from './components/ShoppingListManager';
 import { OffersFinder } from './components/OffersFinder';
-import { categorizeExpense, ReceiptData } from './services/geminiService';
+import { categorizeExpense, ReceiptData, findFlyerOffers } from './services/geminiService';
 import { 
   WalletCards, 
   Download, 
@@ -30,7 +31,8 @@ import {
   Repeat,
   BarChart3,
   ChevronRight,
-  CloudLightning
+  CloudLightning,
+  Bell
 } from 'lucide-react';
 
 // Define available views
@@ -69,6 +71,19 @@ function App() {
     const saved = localStorage.getItem('shoppingList');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // --- STATE: OFFERS & NOTIFICATIONS ---
+  const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>(() => {
+    const saved = localStorage.getItem('offerPrefs');
+    return saved ? JSON.parse(saved) : { 
+      city: '', 
+      selectedStores: [], 
+      lastCheckDate: 0, 
+      hasEnabledNotifications: false 
+    };
+  });
+  
+  const [newOffersCount, setNewOffersCount] = useState(0);
 
   // --- STATE: UI ---
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -111,6 +126,55 @@ function App() {
     localStorage.setItem('shoppingList', JSON.stringify(shoppingList));
   }, [shoppingList]);
 
+  useEffect(() => {
+    localStorage.setItem('offerPrefs', JSON.stringify(offerPrefs));
+  }, [offerPrefs]);
+
+  // --- NOTIFICATION CHECK LOGIC ---
+  useEffect(() => {
+    const checkOffersInBackground = async () => {
+      // Don't check if no city set or stores empty
+      if (!offerPrefs.city || offerPrefs.selectedStores.length === 0) return;
+
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      
+      // Check only if > 24 hours have passed since last check
+      if (now - offerPrefs.lastCheckDate > oneDay) {
+        console.log("Checking for offers in background...");
+        try {
+          const results = await findFlyerOffers(offerPrefs.city, offerPrefs.selectedStores);
+          
+          if (results.length > 0) {
+            setNewOffersCount(results.length);
+            
+            // Send System Notification if enabled
+            if (offerPrefs.hasEnabledNotifications && Notification.permission === 'granted') {
+              new Notification("Nuove Offerte Disponibili! 🛍️", {
+                body: `Trovati ${results.length} nuovi volantini per ${offerPrefs.city}.`,
+                icon: "/pwa-192x192.png", // Assuming PWA icon exists or default
+                badge: "/pwa-192x192.png"
+              });
+            }
+          }
+          
+          // Update last check date
+          setOfferPrefs(prev => ({ ...prev, lastCheckDate: now }));
+        } catch (e) {
+          console.error("Background offer check failed", e);
+        }
+      }
+    };
+
+    // Run check 5 seconds after app load to not block initial render
+    const timer = setTimeout(() => {
+        checkOffersInBackground();
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [offerPrefs.city, offerPrefs.selectedStores, offerPrefs.lastCheckDate, offerPrefs.hasEnabledNotifications]);
+
+
   // --- CALCULATED ---
   const categories = useMemo(() => {
     const unique = new Set(expenses.map(e => e.category));
@@ -149,11 +213,8 @@ function App() {
   const getMonthSheetName = (dateString: string) => {
     try {
       const date = new Date(dateString);
-      // "novembre"
       const month = date.toLocaleString('it-IT', { month: 'long' });
-      // "2025"
       const year = date.getFullYear();
-      // "Novembre 2025"
       return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
     } catch (e) {
       return "Spese Generiche";
@@ -166,10 +227,7 @@ function App() {
 
     setBgSyncStatus('syncing');
     try {
-      // Calculate dynamic sheet name (e.g., "Novembre 2025")
       const dynamicSheetName = getMonthSheetName(expense.date);
-      
-      // Prepare payload
       let payloadExpense: any = { id: expense.id };
       
       if (action !== 'DELETE') {
@@ -195,7 +253,6 @@ function App() {
     } catch (error) {
       console.error("Sync failed", error);
       setBgSyncStatus('error');
-      // Reset error after 3s
       setTimeout(() => setBgSyncStatus('idle'), 3000);
     }
   };
@@ -222,6 +279,22 @@ function App() {
     setIsAuthenticated(false);
   };
 
+  // --- HANDLERS: OFFERS PREFS ---
+  const handleOfferPrefsChange = (city: string, stores: string[], notificationsEnabled: boolean) => {
+    setOfferPrefs(prev => ({
+        ...prev,
+        city,
+        selectedStores: stores,
+        hasEnabledNotifications: notificationsEnabled
+    }));
+  };
+
+  const handleViewOffers = () => {
+    setCurrentView('offers');
+    setNewOffersCount(0); // Reset badge when viewing
+    setIsMenuOpen(false);
+  };
+
   // --- HANDLERS: EXPENSES ---
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string, memberId: string) => {
     setIsAIProcessing(true);
@@ -241,14 +314,11 @@ function App() {
 
     setExpenses(prev => [newExpense, ...prev]);
     setIsAIProcessing(false);
-    
-    // Trigger Sync
     syncToGoogleSheet('ADD', newExpense);
   };
 
   const handleUpdateExpense = (updated: Expense) => {
     setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
-    // Trigger Sync
     syncToGoogleSheet('UPDATE', updated);
   };
 
@@ -258,7 +328,6 @@ function App() {
 
     if (confirm('Sei sicuro di voler eliminare questa spesa?')) {
       setExpenses(prev => prev.filter(e => e.id !== id));
-      // Trigger Sync - Pass the full expense so we know ID (and theoretically sheet, though script now searches all)
       syncToGoogleSheet('DELETE', expenseToDelete);
     }
   };
@@ -284,7 +353,6 @@ function App() {
     setExpenses(prev => [...newExpenses, ...prev]);
     alert(`Aggiunti ${newExpenses.length} prodotti con successo!`);
     
-    // Sync individually
     newExpenses.forEach(exp => syncToGoogleSheet('ADD', exp));
   };
 
@@ -315,14 +383,12 @@ function App() {
     document.body.removeChild(link);
   };
 
-  // --- HANDLERS: STORES ---
   const handleAddStore = (name: string) => {
     if (!stores.find(s => s.name.toLowerCase() === name.toLowerCase())) {
       setStores(prev => [...prev, { id: crypto.randomUUID(), name }]);
     }
   };
 
-  // --- HANDLERS: RECURRING ---
   const handleAddRecurring = (product: string, amount: number, store: string, frequency: Frequency, nextDate: string) => {
     const newRecurring: RecurringExpense = {
       id: crypto.randomUUID(),
@@ -359,7 +425,6 @@ function App() {
     ));
   };
 
-  // --- HANDLERS: SHOPPING LIST ---
   const handleAddShoppingItem = (product: string, store: string) => {
     const newItem: ShoppingItem = {
         id: crypto.randomUUID(),
@@ -378,7 +443,6 @@ function App() {
     setShoppingList(prev => prev.filter(i => i.id !== id));
   };
 
-  // --- HANDLERS: SYNC ---
   const handleSyncImport = (data: SyncData) => {
     if (confirm('Attenzione: Stai per sovrascrivere i dati locali con quelli importati. Continuare?')) {
       setExpenses(data.expenses);
@@ -390,15 +454,24 @@ function App() {
   };
 
   // --- NAVIGATION HELPERS ---
-  const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string }> = ({ view, icon, label }) => (
+  const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string, badge?: number }> = ({ view, icon, label, badge }) => (
     <button 
-      onClick={() => { setCurrentView(view); setIsMenuOpen(false); }}
-      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${
+      onClick={() => { 
+          setCurrentView(view); 
+          if(view === 'offers') setNewOffersCount(0); 
+          setIsMenuOpen(false); 
+      }}
+      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors relative ${
         currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100 font-medium'
       }`}
     >
       {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
       <span className="text-lg">{label}</span>
+      {badge && badge > 0 && (
+          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full absolute right-10">
+              {badge}
+          </span>
+      )}
       {currentView === view && <ChevronRight className="w-5 h-5 ml-auto text-emerald-600" />}
     </button>
   );
@@ -418,6 +491,7 @@ function App() {
                 stores={stores} 
                 members={familyProfile?.members || []}
                 existingProducts={Array.from(new Set(expenses.map(e => e.product)))}
+                productHistory={productHistoryMap}
                 onAddExpense={handleAddExpense} 
                 isAnalyzing={isAIProcessing}
              />
@@ -494,7 +568,13 @@ function App() {
                   <Percent className="w-7 h-7 text-red-500" /> Caccia alle Offerte
                 </h2>
              </div>
-            <OffersFinder stores={stores} />
+            <OffersFinder 
+                stores={stores} 
+                savedCity={offerPrefs.city}
+                savedStores={offerPrefs.selectedStores}
+                notificationsEnabled={offerPrefs.hasEnabledNotifications}
+                onPreferencesChange={handleOfferPrefsChange}
+            />
           </div>
         );
 
@@ -555,9 +635,12 @@ function App() {
              {/* Hamburger Button */}
              <button 
                 onClick={() => setIsMenuOpen(true)}
-                className="p-3 -ml-2 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors active:scale-95"
+                className="p-3 -ml-2 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors active:scale-95 relative"
              >
                 <Menu className="w-7 h-7" />
+                {newOffersCount > 0 && (
+                    <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+                )}
              </button>
              
              <div className="flex items-center gap-3 overflow-hidden" onClick={() => setCurrentView('dashboard')}>
@@ -611,7 +694,7 @@ function App() {
                  <MenuButton view="dashboard" icon={<Home />} label="Home & Scansione" />
                  <MenuButton view="history" icon={<History />} label="Storico Transazioni" />
                  <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" />
-                 <MenuButton view="offers" icon={<Percent />} label="Caccia alle Offerte" />
+                 <MenuButton view="offers" icon={<Percent />} label="Caccia alle Offerte" badge={newOffersCount} />
                  <MenuButton view="recurring" icon={<Repeat />} label="Spese Ricorrenti" />
                  <MenuButton view="analytics" icon={<BarChart3 />} label="Analisi & Grafici" />
                  
