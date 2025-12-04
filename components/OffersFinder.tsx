@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Store, FlyerOffer } from '../types';
-import { Search, MapPin, Loader2, ExternalLink, Calendar, ShoppingBag, Percent, Bell, BellOff } from 'lucide-react';
+import { Search, MapPin, Loader2, ExternalLink, Calendar, ShoppingBag, Percent, Bell, BellOff, Locate } from 'lucide-react';
 import { findFlyerOffers } from '../services/geminiService';
 
 interface OffersFinderProps {
@@ -25,6 +25,7 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [offers, setOffers] = useState<FlyerOffer[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
 
   // Initialize selected stores default if empty
   useEffect(() => {
@@ -32,7 +33,6 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
       const initial = new Set<string>();
       stores.slice(0, 3).forEach(s => initial.add(s.name));
       setSelectedStores(initial);
-      // Don't auto-save yet, wait for user action
     }
   }, [stores]);
 
@@ -43,13 +43,12 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
     setSelectedStores(next);
   };
 
-  const savePreferences = (enableNotifications: boolean = notificationsEnabled) => {
-    onPreferencesChange(city, Array.from(selectedStores), enableNotifications);
+  const savePreferences = (currentCity: string, enableNotifications: boolean = notificationsEnabled) => {
+    onPreferencesChange(currentCity, Array.from(selectedStores), enableNotifications);
   };
 
   const handleToggleNotifications = async () => {
     if (!notificationsEnabled) {
-        // Request Permission
         if (!("Notification" in window)) {
             alert("Questo browser non supporta le notifiche.");
             return;
@@ -57,20 +56,60 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
 
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
-            savePreferences(true);
+            savePreferences(city, true);
         } else {
             alert("Permesso notifiche negato.");
         }
     } else {
-        savePreferences(false);
+        savePreferences(city, false);
     }
+  };
+
+  const handleGeoLocation = () => {
+    if (!navigator.geolocation) {
+      alert("La geolocalizzazione non è supportata dal tuo browser.");
+      return;
+    }
+
+    setIsLocating(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          // Usa un'API pubblica gratuita per il reverse geocoding
+          const response = await fetch(
+            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=it`
+          );
+          const data = await response.json();
+          
+          const foundCity = data.city || data.locality || data.principalSubdivision;
+          
+          if (foundCity) {
+            setCity(foundCity);
+            savePreferences(foundCity); // Salva subito la città trovata
+          } else {
+            alert("Città non trovata. Inseriscila manualmente.");
+          }
+        } catch (error) {
+          console.error("Errore geolocalizzazione:", error);
+          alert("Impossibile recuperare il nome della città. Riprova o inserisci manualmente.");
+        } finally {
+          setIsLocating(false);
+        }
+      },
+      (error) => {
+        console.error("Errore permessi GPS:", error);
+        alert("Per usare il GPS, devi concedere i permessi di localizzazione.");
+        setIsLocating(false);
+      }
+    );
   };
 
   const handleSearch = async () => {
     if (!city.trim() || selectedStores.size === 0) return;
     
-    // Save prefs on search
-    savePreferences();
+    savePreferences(city);
 
     setIsLoading(true);
     setHasSearched(true);
@@ -104,34 +143,45 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
                  <h4 className="font-bold text-red-800 text-sm">Impostazioni Monitoraggio</h4>
                  <button 
                     onClick={handleToggleNotifications}
-                    className={`p-2 rounded-full transition-colors ${notificationsEnabled ? 'bg-red-200 text-red-700' : 'bg-gray-100 text-gray-400'}`}
+                    className={`p-2 rounded-full transition-colors flex items-center gap-2 px-3 ${notificationsEnabled ? 'bg-red-200 text-red-800' : 'bg-white text-gray-400 border border-gray-200'}`}
                     title={notificationsEnabled ? "Notifiche Attive" : "Abilita Notifiche"}
                  >
                      {notificationsEnabled ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+                     <span className="text-xs font-bold">{notificationsEnabled ? 'ON' : 'OFF'}</span>
                  </button>
              </div>
              
-             {/* City Input */}
+             {/* City Input with GPS */}
              <div className="mb-4">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">La tua zona</label>
-                <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <MapPin className="h-4 w-4 text-gray-400" />
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <MapPin className="h-4 w-4 text-gray-400" />
+                        </div>
+                        <input
+                        type="text"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="Città (es. Milano)"
+                        className="pl-10 w-full rounded-xl border border-gray-300 bg-white p-3 text-base focus:border-red-500 focus:ring-2 focus:ring-red-100 outline-none transition-all shadow-sm"
+                        />
                     </div>
-                    <input
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    placeholder="Città (es. Milano)"
-                    className="pl-10 w-full rounded-xl border border-gray-300 bg-white p-3 text-sm focus:border-red-500 focus:ring-2 focus:ring-red-100 outline-none transition-all"
-                    />
+                    <button
+                        onClick={handleGeoLocation}
+                        disabled={isLocating}
+                        className="bg-white border border-gray-300 text-gray-600 px-3 rounded-xl hover:bg-gray-50 hover:text-red-600 transition-colors shadow-sm"
+                        title="Usa la mia posizione"
+                    >
+                        {isLocating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Locate className="w-5 h-5" />}
+                    </button>
                 </div>
              </div>
 
              {/* Store Selection */}
              <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Monitora Volantini di:</label>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
                     {stores.map(store => (
                         <button
                         key={store.id}
@@ -153,7 +203,7 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
           <button
             onClick={handleSearch}
             disabled={isLoading || !city || selectedStores.size === 0}
-            className="w-full bg-red-600 text-white py-3.5 rounded-xl font-bold text-base hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-md active:scale-[0.98]"
+            className="w-full bg-red-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-md active:scale-[0.98]"
           >
             {isLoading ? (
               <>
@@ -206,7 +256,7 @@ export const OffersFinder: React.FC<OffersFinderProps> = ({
                     href={offer.flyerLink} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="block w-full text-center bg-white border-2 border-red-500 text-red-600 text-sm font-bold py-2.5 rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 group-hover:bg-red-600 group-hover:text-white"
+                    className="block w-full text-center bg-white border-2 border-red-500 text-red-600 text-sm font-bold py-3 rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 group-hover:bg-red-600 group-hover:text-white"
                   >
                     <ExternalLink className="w-4 h-4" /> Vedi Volantino Digitale
                   </a>
