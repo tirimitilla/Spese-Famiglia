@@ -46,6 +46,7 @@ function App() {
   
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Data State
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const saved = localStorage.getItem('expenses');
     const parsed = saved ? JSON.parse(saved) : [];
@@ -55,7 +56,6 @@ function App() {
     }));
   });
 
-  // --- NEW STATE: INCOMES ---
   const [incomes, setIncomes] = useState<Income[]>(() => {
     const saved = localStorage.getItem('incomes');
     return saved ? JSON.parse(saved) : [];
@@ -85,6 +85,9 @@ function App() {
       hasEnabledNotifications: false 
     };
   });
+
+  // Metadata State
+  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(Date.now());
   
   const [newOffersCount, setNewOffersCount] = useState(0);
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -99,10 +102,13 @@ function App() {
   const [showGoogleSheet, setShowGoogleSheet] = useState(false);
   
   const [bgSyncStatus, setBgSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'success'>('idle');
+  
+  // Refs for sync logic
   const isFirstLoad = useRef(true);
+  const isRemoteUpdate = useRef(false); // FLAG CRUCIALE: indica se l'aggiornamento viene dal cloud
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persistence
+  // Persistence LocalStorage
   useEffect(() => { localStorage.setItem('expenses', JSON.stringify(expenses)); }, [expenses]);
   useEffect(() => { localStorage.setItem('incomes', JSON.stringify(incomes)); }, [incomes]);
   useEffect(() => { localStorage.setItem('stores', JSON.stringify(stores)); }, [stores]);
@@ -114,18 +120,23 @@ function App() {
   useEffect(() => { localStorage.setItem('shoppingList', JSON.stringify(shoppingList)); }, [shoppingList]);
   useEffect(() => { localStorage.setItem('offerPrefs', JSON.stringify(offerPrefs)); }, [offerPrefs]);
 
-  // Cloud Sync
+  // --- CLOUD SYNC LOGIC ---
+
+  // 1. Initial Load (One time on mount/login)
   useEffect(() => {
     const loadFromCloud = async () => {
         if (!isAuthenticated || !familyProfile?.googleSheetUrl || !isFirstLoad.current) return;
         setBgSyncStatus('syncing');
         try {
-            await fetch(familyProfile.googleSheetUrl, {
+            const res = await fetch(familyProfile.googleSheetUrl, {
                 method: 'POST',
-                mode: 'no-cors',
+                mode: 'no-cors', // Note: no-cors means we can't read response in some modes, but AppsScript usually handles simple GET if configured right or we use polling later.
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({ action: "GET_STATE" })
             });
+            // With no-cors we can't read the body directly here easily without proxy, 
+            // BUT the Polling Interval below will handle the actual data fetch efficiently.
+            // This just ensures we try once fast.
         } catch (e) {
             console.warn("Cloud load skipped or failed.", e);
         }
@@ -135,25 +146,75 @@ function App() {
     loadFromCloud();
   }, [isAuthenticated, familyProfile]);
 
+  // 2. Polling Loop (The "Heartbeat" - Checks every 10s)
+  useEffect(() => {
+    if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
+
+    const interval = setInterval(async () => {
+      try {
+        // We use a POST with GET_STATE action because Apps Script simple triggers work best with POST for JSON payloads
+        const response = await fetch(familyProfile.googleSheetUrl!, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: "GET_STATE" })
+        });
+        
+        const data = await response.json();
+        
+        // If we have data and it's newer than our local data
+        if (data && data.lastUpdated && data.lastUpdated > lastDataTimestamp) {
+           console.log("Cloud data is newer. Updating local...");
+           
+           // Set flag to prevent echoing this update back to cloud
+           isRemoteUpdate.current = true;
+           
+           // Batch updates
+           if (data.expenses) setExpenses(data.expenses);
+           if (data.incomes) setIncomes(data.incomes);
+           if (data.stores) setStores(data.stores);
+           if (data.shoppingList) setShoppingList(data.shoppingList);
+           if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
+           
+           setLastDataTimestamp(data.lastUpdated);
+        }
+
+      } catch (error) {
+        // Silent fail on polling errors to not annoy user
+        console.debug("Polling check failed", error);
+      }
+    }, 10000); // 10 Seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, familyProfile, lastDataTimestamp]);
+
+
+  // 3. Auto-Save on Change (Debounced)
   useEffect(() => {
      if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
      if (isFirstLoad.current) return;
+
+     // If this change was triggered by the cloud polling, DO NOT save it back.
+     if (isRemoteUpdate.current) {
+        isRemoteUpdate.current = false;
+        return;
+     }
 
      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
      syncTimeoutRef.current = setTimeout(async () => {
         setBgSyncStatus('syncing');
+        const now = Date.now();
         try {
             const payload = {
                 action: "SET_STATE",
                 state: {
                     expenses,
-                    incomes, // SYNC INCOMES
+                    incomes,
                     stores,
-                    shoppingList, // SYNC SHOPPING LIST
+                    shoppingList,
                     recurringExpenses,
                     offerPrefs,
-                    lastUpdated: Date.now()
+                    lastUpdated: now
                 }
             };
 
@@ -164,13 +225,16 @@ function App() {
                 body: JSON.stringify(payload)
             });
             
+            // Update local timestamp so we don't re-fetch our own save
+            setLastDataTimestamp(now);
+            
             setBgSyncStatus('success');
             setTimeout(() => setBgSyncStatus('idle'), 2000);
         } catch (e) {
             console.error("Cloud save failed", e);
             setBgSyncStatus('error');
         }
-     }, 3000);
+     }, 3000); // Wait 3s after typing stops
 
      return () => {
          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
