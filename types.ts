@@ -2,14 +2,21 @@
 export interface Member {
   id: string;
   name: string;
-  color: string; // Hex color code for UI avatar
+  color: string;
 }
 
 export interface FamilyProfile {
   familyName: string;
   pin: string;
-  members: Member[];
-  googleSheetUrl?: string; // URL of the Google Apps Script Web App
+  members: Member[]; // Manteniamo per retrocompatibilità profilo, ma non usiamo nell'UI spese
+  googleSheetUrl?: string;
+}
+
+export interface Income {
+  id: string;
+  source: string; // Fonte (es. Stipendio)
+  amount: number;
+  date: string;
 }
 
 export interface Expense {
@@ -20,8 +27,8 @@ export interface Expense {
   total: number;
   store: string;
   date: string;
-  category: string; // AI determined
-  memberId?: string; // ID of the family member who made the purchase
+  category: string;
+  memberId?: string;
 }
 
 export interface Store {
@@ -41,7 +48,7 @@ export interface RecurringExpense {
   amount: number;
   store: string;
   frequency: Frequency;
-  nextDueDate: string; // ISO Date string
+  nextDueDate: string;
 }
 
 export interface ShoppingItem {
@@ -54,20 +61,21 @@ export interface ShoppingItem {
 export interface FlyerOffer {
   storeName: string;
   flyerLink: string;
-  validUntil?: string;
+  validUntil: string;
   topOffers: string[];
 }
 
 export interface OfferPreferences {
   city: string;
   selectedStores: string[];
-  lastCheckDate: number; // Timestamp
+  lastCheckDate: number;
   hasEnabledNotifications: boolean;
 }
 
-// Payload for the Sync functionality
+// Payload for Sync
 export interface SyncData {
   expenses: Expense[];
+  incomes: Income[]; // NUOVO CAMPO
   stores: Store[];
   recurringExpenses: RecurringExpense[];
   shoppingList: ShoppingItem[];

@@ -1,55 +1,43 @@
 
 import React, { useState, useEffect } from 'react';
 import { Store, Member } from '../types';
-import { Plus, Loader2, ShoppingBag, Hash, DollarSign, Store as StoreIcon, Tag, UserCircle } from 'lucide-react';
+import { Plus, Loader2, ShoppingBag, Hash, DollarSign, Store as StoreIcon, Tag } from 'lucide-react';
 
 interface ExpenseFormProps {
   stores: Store[];
-  members: Member[];
+  members: Member[]; // Mantenuto solo per compatibilità props, non usato
   existingProducts: string[];
-  productHistory: Record<string, string>; // Map: Product Name -> Last Store Name
-  onAddExpense: (product: string, quantity: number, unitPrice: number, total: number, store: string, memberId: string) => Promise<void>;
+  productHistory: Record<string, string>;
+  onAddExpense: (product: string, quantity: number, unitPrice: number, total: number, store: string) => Promise<void>;
   isAnalyzing: boolean;
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, existingProducts, productHistory, onAddExpense, isAnalyzing }) => {
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, existingProducts, productHistory, onAddExpense, isAnalyzing }) => {
   const [product, setProduct] = useState('');
   const [quantity, setQuantity] = useState<string>('1');
   const [unitPrice, setUnitPrice] = useState<string>('');
   const [total, setTotal] = useState<string>('');
   const [selectedStore, setSelectedStore] = useState<string>(stores[0]?.name || '');
-  const [selectedMemberId, setSelectedMemberId] = useState<string>(members[0]?.id || '');
 
-  // Update selected store/member if lists change (e.g. after sync)
   useEffect(() => {
     if (!selectedStore && stores.length > 0) setSelectedStore(stores[0].name);
-    if (!selectedMemberId && members.length > 0) setSelectedMemberId(members[0].id);
-  }, [stores, members]);
+  }, [stores]);
 
-  // Handle product input change and auto-suggest store
   const handleProductChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setProduct(val);
-
-    // Auto-select store if product exists in history
-    // We check if the suggested store actually exists in the current stores list to avoid errors
     if (productHistory[val]) {
         const suggestedStore = productHistory[val];
         const storeExists = stores.some(s => s.name === suggestedStore);
-        if (storeExists) {
-            setSelectedStore(suggestedStore);
-        }
+        if (storeExists) setSelectedStore(suggestedStore);
     }
   };
 
-  // Auto-calculate total when quantity or unit price changes
   const updateCalculations = (qtyStr: string, priceStr: string) => {
     const qty = parseFloat(qtyStr);
     const price = parseFloat(priceStr);
-    
     if (!isNaN(qty) && !isNaN(price)) {
-      const calculatedTotal = (qty * price).toFixed(2);
-      setTotal(calculatedTotal);
+      setTotal((qty * price).toFixed(2));
     }
   };
 
@@ -71,20 +59,17 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!product || !total || !selectedStore || !selectedMemberId) return;
+    if (!product || !total || !selectedStore) return;
 
     const finalQty = parseFloat(quantity);
     const finalTotal = parseFloat(total);
-    
-    // If unit price is empty but total exists, calculate it
     let finalUnitPrice = parseFloat(unitPrice);
     if (isNaN(finalUnitPrice) && finalQty > 0) {
         finalUnitPrice = finalTotal / finalQty;
     }
 
-    await onAddExpense(product, finalQty, finalUnitPrice || 0, finalTotal, selectedStore, selectedMemberId);
+    await onAddExpense(product, finalQty, finalUnitPrice || 0, finalTotal, selectedStore);
     
-    // Reset form partially
     setProduct('');
     setQuantity('1');
     setUnitPrice('');
@@ -99,7 +84,6 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
       </h2>
       <form onSubmit={handleSubmit} className="space-y-5">
         
-        {/* Product Input - Text-base prevents zoom on iOS and is readable */}
         <div>
           <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Prodotto</label>
           <div className="relative">
@@ -125,7 +109,6 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          {/* Quantity Input */}
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Qt.</label>
             <div className="relative">
@@ -144,7 +127,6 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
             </div>
           </div>
 
-          {/* Unit Price Input */}
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1 whitespace-nowrap">Prezzo Un.</label>
             <div className="relative">
@@ -163,7 +145,6 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
             </div>
           </div>
 
-          {/* Total Price Input */}
           <div>
             <label className="block text-xs font-bold text-emerald-600 uppercase mb-1.5 ml-1">Totale</label>
             <div className="relative">
@@ -184,57 +165,29 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, members, exist
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Store Select */}
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Negozio</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <StoreIcon className="h-5 w-5 text-gray-400" />
-                  </div>
-                <select
-                  value={selectedStore}
-                  onChange={(e) => setSelectedStore(e.target.value)}
-                  className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none appearance-none shadow-sm"
-                >
-                  {stores.map((store) => (
-                    <option key={store.id} value={store.name}>
-                      {store.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+        <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Negozio</label>
+            <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <StoreIcon className="h-5 w-5 text-gray-400" />
                 </div>
-              </div>
+            <select
+                value={selectedStore}
+                onChange={(e) => setSelectedStore(e.target.value)}
+                className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none appearance-none shadow-sm"
+            >
+                {stores.map((store) => (
+                <option key={store.id} value={store.name}>
+                    {store.name}
+                </option>
+                ))}
+            </select>
+            <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </div>
-
-            {/* Member Select */}
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Chi paga?</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <UserCircle className="h-5 w-5 text-gray-400" />
-                  </div>
-                <select
-                  value={selectedMemberId}
-                  onChange={(e) => setSelectedMemberId(e.target.value)}
-                  className="pl-11 w-full rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none appearance-none shadow-sm"
-                >
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                </div>
-              </div>
             </div>
         </div>
 
-        {/* Submit Button */}
         <button
           type="submit"
           disabled={isAnalyzing}

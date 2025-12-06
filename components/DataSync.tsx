@@ -1,10 +1,12 @@
+
 import React, { useState } from 'react';
-import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem } from '../types';
+import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem, Income } from '../types';
 import { Share2, Copy, Download, Upload, CheckCircle, AlertCircle, X } from 'lucide-react';
 
 interface DataSyncProps {
   data: {
     expenses: Expense[];
+    incomes?: Income[]; // Optional to prevent breaking old calls
     stores: Store[];
     recurringExpenses: RecurringExpense[];
     shoppingList: ShoppingItem[];
@@ -14,7 +16,6 @@ interface DataSyncProps {
   onClose: () => void;
 }
 
-// UTF-8 Safe Base64 helpers
 function utf8_to_b64(str: string) {
   return window.btoa(unescape(encodeURIComponent(str)));
 }
@@ -32,6 +33,7 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
   const generateSyncString = () => {
     const payload: SyncData = {
       ...data,
+      incomes: data.incomes || [],
       familyProfile: data.familyProfile!,
       timestamp: Date.now(),
     };
@@ -52,7 +54,6 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
       const jsonString = b64_to_utf8(importString);
       const parsedData = JSON.parse(jsonString) as SyncData;
 
-      // Basic validation
       if (!parsedData.expenses || !parsedData.familyProfile) {
         throw new Error("Formato dati non valido");
       }
@@ -72,7 +73,6 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         
-        {/* Header */}
         <div className="bg-gray-900 text-white p-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Share2 className="w-5 h-5 text-emerald-400" />
@@ -83,7 +83,6 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-gray-200">
           <button
             onClick={() => setSyncMode('export')}
@@ -103,14 +102,13 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 overflow-y-auto">
           
           {syncMode === 'export' ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
                 Invia questo codice ai tuoi familiari su <strong>WhatsApp</strong> o <strong>Email</strong>. 
-                Loro dovranno incollarlo nella sezione "Inserisci Codice" per allineare i dati.
+                Loro dovranno incollarlo nella sezione "Inserisci Codice" per allineare i dati (Guadagni, Spese e Lista).
               </p>
               
               <div className="relative">
@@ -141,7 +139,7 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
                <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex gap-3">
                  <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                  <p className="text-xs text-blue-800">
-                   Attenzione: Importando i dati, <strong>sovrascriverai</strong> quelli attuali su questo dispositivo con quelli del codice.
+                   Attenzione: Importando i dati, <strong>sovrascriverai</strong> quelli attuali su questo dispositivo.
                  </p>
                </div>
 
