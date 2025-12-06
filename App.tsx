@@ -105,7 +105,7 @@ function App() {
   
   // Refs for sync logic
   const isFirstLoad = useRef(true);
-  const isRemoteUpdate = useRef(false); // FLAG CRUCIALE: indica se l'aggiornamento viene dal cloud
+  const isRemoteUpdate = useRef(false); 
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Persistence LocalStorage
@@ -122,23 +122,29 @@ function App() {
 
   // --- CLOUD SYNC LOGIC ---
 
-  // 1. Initial Load (One time on mount/login)
+  // 1. Initial Load
   useEffect(() => {
     const loadFromCloud = async () => {
         if (!isAuthenticated || !familyProfile?.googleSheetUrl || !isFirstLoad.current) return;
         setBgSyncStatus('syncing');
         try {
-            const res = await fetch(familyProfile.googleSheetUrl, {
+            const response = await fetch(familyProfile.googleSheetUrl, {
                 method: 'POST',
-                mode: 'no-cors', // Note: no-cors means we can't read response in some modes, but AppsScript usually handles simple GET if configured right or we use polling later.
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({ action: "GET_STATE" })
             });
-            // With no-cors we can't read the body directly here easily without proxy, 
-            // BUT the Polling Interval below will handle the actual data fetch efficiently.
-            // This just ensures we try once fast.
+            const data = await response.json();
+            if (data && data.lastUpdated > lastDataTimestamp) {
+                isRemoteUpdate.current = true;
+                if (data.expenses) setExpenses(data.expenses);
+                if (data.incomes) setIncomes(data.incomes);
+                if (data.stores) setStores(data.stores);
+                if (data.shoppingList) setShoppingList(data.shoppingList);
+                if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
+                setLastDataTimestamp(data.lastUpdated);
+            }
         } catch (e) {
-            console.warn("Cloud load skipped or failed.", e);
+            console.warn("Cloud load failed.", e);
         }
         setBgSyncStatus('idle');
         isFirstLoad.current = false;
@@ -146,13 +152,12 @@ function App() {
     loadFromCloud();
   }, [isAuthenticated, familyProfile]);
 
-  // 2. Polling Loop (The "Heartbeat" - Checks every 10s)
+  // 2. Polling Loop (Aggiornamento automatico ogni 5s)
   useEffect(() => {
     if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
 
     const interval = setInterval(async () => {
       try {
-        // We use a POST with GET_STATE action because Apps Script simple triggers work best with POST for JSON payloads
         const response = await fetch(familyProfile.googleSheetUrl!, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -161,39 +166,34 @@ function App() {
         
         const data = await response.json();
         
-        // If we have data and it's newer than our local data
+        // Se i dati sul cloud sono più recenti dei nostri
         if (data && data.lastUpdated && data.lastUpdated > lastDataTimestamp) {
            console.log("Cloud data is newer. Updating local...");
-           
-           // Set flag to prevent echoing this update back to cloud
            isRemoteUpdate.current = true;
            
-           // Batch updates
            if (data.expenses) setExpenses(data.expenses);
-           if (data.incomes) setIncomes(data.incomes);
+           if (data.incomes) setIncomes(data.incomes); // Sync Incomes
            if (data.stores) setStores(data.stores);
-           if (data.shoppingList) setShoppingList(data.shoppingList);
+           if (data.shoppingList) setShoppingList(data.shoppingList); // Sync Shopping
            if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
            
            setLastDataTimestamp(data.lastUpdated);
         }
 
       } catch (error) {
-        // Silent fail on polling errors to not annoy user
-        console.debug("Polling check failed", error);
+        // Silent fail
       }
-    }, 10000); // 10 Seconds
+    }, 5000); // Controllo ogni 5 secondi per essere più reattivo
 
     return () => clearInterval(interval);
   }, [isAuthenticated, familyProfile, lastDataTimestamp]);
 
 
-  // 3. Auto-Save on Change (Debounced)
+  // 3. Auto-Save on Change
   useEffect(() => {
      if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
      if (isFirstLoad.current) return;
 
-     // If this change was triggered by the cloud polling, DO NOT save it back.
      if (isRemoteUpdate.current) {
         isRemoteUpdate.current = false;
         return;
@@ -225,7 +225,6 @@ function App() {
                 body: JSON.stringify(payload)
             });
             
-            // Update local timestamp so we don't re-fetch our own save
             setLastDataTimestamp(now);
             
             setBgSyncStatus('success');
@@ -234,14 +233,14 @@ function App() {
             console.error("Cloud save failed", e);
             setBgSyncStatus('error');
         }
-     }, 3000); // Wait 3s after typing stops
+     }, 2000); // Save after 2s of inactivity
 
      return () => {
          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
      };
   }, [expenses, incomes, stores, shoppingList, recurringExpenses, offerPrefs, isAuthenticated, familyProfile]);
 
-  // Notifications
+  // Notifications logic
   useEffect(() => {
     const checkOffersInBackground = async () => {
       if (!offerPrefs.city || offerPrefs.selectedStores.length === 0) return;
@@ -251,11 +250,6 @@ function App() {
           const results = await findFlyerOffers(offerPrefs.city, offerPrefs.selectedStores);
           if (results.length > 0) {
             setNewOffersCount(results.length);
-            if (offerPrefs.hasEnabledNotifications && Notification.permission === 'granted') {
-              new Notification("Nuove Offerte Disponibili!", {
-                body: `Trovati ${results.length} nuovi volantini.`,
-              });
-            }
           }
           setOfferPrefs(prev => ({ ...prev, lastCheckDate: now }));
         } catch (e) {}
@@ -263,7 +257,7 @@ function App() {
     };
     const timer = setTimeout(() => { checkOffersInBackground(); }, 5000);
     return () => clearTimeout(timer);
-  }, [offerPrefs.city, offerPrefs.selectedStores, offerPrefs.lastCheckDate, offerPrefs.hasEnabledNotifications]);
+  }, [offerPrefs.city, offerPrefs.selectedStores, offerPrefs.lastCheckDate]);
 
   const categories = useMemo(() => {
     const unique = new Set(expenses.map(e => e.category));

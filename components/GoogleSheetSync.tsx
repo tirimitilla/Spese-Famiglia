@@ -16,22 +16,43 @@ function doPost(e) {
   var action = data.action;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   
+  // --- SALVATAGGIO STATO COMPLETO (SU FOGLI SEPARATI) ---
   if (action === "SET_STATE") {
-    var dbSheet = ss.getSheetByName("_APP_DB");
-    if (!dbSheet) { dbSheet = ss.insertSheet("_APP_DB"); }
-    dbSheet.clear();
-    dbSheet.getRange(1,1).setValue(JSON.stringify(data.state));
-    return response("State Saved");
+    var state = data.state;
+    
+    // Salviamo ogni pezzo su un foglio dedicato per evitare conflitti
+    saveToHiddenSheet(ss, "_DB_EXPENSES", state.expenses);
+    saveToHiddenSheet(ss, "_DB_INCOMES", state.incomes);
+    saveToHiddenSheet(ss, "_DB_SHOPPING", state.shoppingList);
+    saveToHiddenSheet(ss, "_DB_META", { 
+      stores: state.stores, 
+      recurring: state.recurringExpenses, 
+      prefs: state.offerPrefs,
+      lastUpdated: state.lastUpdated 
+    });
+
+    return response({ success: true, timestamp: Date.now() });
   }
 
+  // --- CARICAMENTO STATO (DA FOGLI SEPARATI) ---
   if (action === "GET_STATE") {
-    var dbSheet = ss.getSheetByName("_APP_DB");
-    if (!dbSheet) return response({ isEmpty: true });
-    var json = dbSheet.getRange(1,1).getValue();
-    if (!json) return response({ isEmpty: true });
-    return response(JSON.parse(json));
+    var expenses = loadFromHiddenSheet(ss, "_DB_EXPENSES") || [];
+    var incomes = loadFromHiddenSheet(ss, "_DB_INCOMES") || [];
+    var shoppingList = loadFromHiddenSheet(ss, "_DB_SHOPPING") || [];
+    var meta = loadFromHiddenSheet(ss, "_DB_META") || {};
+
+    return response({
+      expenses: expenses,
+      incomes: incomes,
+      shoppingList: shoppingList,
+      stores: meta.stores || [],
+      recurringExpenses: meta.recurring || [],
+      offerPrefs: meta.prefs || {},
+      lastUpdated: meta.lastUpdated || 0
+    });
   }
 
+  // --- REPORT TABELLARE (LEGGIBILE DA UMANI) ---
   if (action === "ADD_REPORT") {
     var expense = data.expense;
     var targetSheetName = data.sheetName; 
@@ -41,13 +62,46 @@ function doPost(e) {
       sheet.appendRow(["ID", "Data", "Prodotto", "Negozio", "Categoria", "Quantità", "Prezzo Unit.", "Totale"]);
       sheet.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#E6F4EA");
     }
-    sheet.appendRow([
-      expense.id, expense.date, expense.product, expense.store, expense.category, expense.quantity, expense.unitPrice, expense.total
-    ]);
+    // Evita duplicati controllando l'ID
+    var textFinder = sheet.createTextFinder(expense.id);
+    if (textFinder.findAll().length === 0) {
+       sheet.appendRow([
+        expense.id, expense.date, expense.product, expense.store, expense.category, expense.quantity, expense.unitPrice, expense.total
+      ]);
+    }
     return response("Report Added");
   }
 
   return response("Unknown Action");
+}
+
+// Funzione Helper per salvare JSON su un foglio nascosto
+function saveToHiddenSheet(ss, sheetName, data) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) { 
+    sheet = ss.insertSheet(sheetName);
+    // sheet.hideSheet(); // Decommenta se vuoi nasconderli
+  }
+  sheet.clear();
+  if (data) {
+    // Usiamo la cella A1 per conservare tutto il blocco JSON
+    // Questo è molto più veloce e sicuro per la sincronizzazione app-to-app
+    // rispetto a scrivere riga per riga che può creare errori di parsing
+    sheet.getRange(1,1).setValue(JSON.stringify(data));
+  }
+}
+
+// Funzione Helper per caricare JSON
+function loadFromHiddenSheet(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return null;
+  var val = sheet.getRange(1,1).getValue();
+  if (!val) return null;
+  try {
+    return JSON.parse(val);
+  } catch(e) {
+    return null;
+  }
 }
 
 function response(data) {
@@ -89,10 +143,10 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ familyProfile,
             <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 mb-6">
                 <h3 className="font-bold text-orange-800 flex items-center gap-2 mb-2">
                     <HelpCircle className="w-4 h-4" />
-                    Aggiornamento Importante
+                    Aggiornamento Critico Richiesto
                 </h3>
                 <p className="text-sm text-orange-700 mb-2">
-                  Per sincronizzare anche la <strong>Lista della Spesa</strong> e i <strong>Guadagni</strong>, devi aggiornare lo script.
+                  Ho riscritto il sistema di salvataggio per separare <strong>Guadagni</strong>, <strong>Lista Spesa</strong> e <strong>Spese</strong> in fogli diversi.
                 </p>
                 <ol className="list-decimal list-inside text-sm text-orange-700 space-y-2">
                     <li>Copia il <strong>Nuovo Codice</strong> qui sotto.</li>
