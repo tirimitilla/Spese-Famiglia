@@ -12,87 +12,87 @@ interface GoogleSheetSyncProps {
 
 const APPS_SCRIPT_CODE = `
 function doPost(e) {
-  var data = JSON.parse(e.postData.contents);
-  var action = data.action;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // --- SALVATAGGIO STATO COMPLETO (SU FOGLI SEPARATI) ---
-  if (action === "SET_STATE") {
-    var state = data.state;
+  var lock = LockService.getScriptLock();
+  // Wait longer to ensure no collision
+  lock.tryLock(30000); 
+
+  try {
+    var output = {};
+    var data = JSON.parse(e.postData.contents);
+    var action = data.action;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    // Salviamo ogni pezzo su un foglio dedicato per evitare conflitti
-    saveToHiddenSheet(ss, "_DB_EXPENSES", state.expenses);
-    saveToHiddenSheet(ss, "_DB_INCOMES", state.incomes);
-    saveToHiddenSheet(ss, "_DB_SHOPPING", state.shoppingList);
-    saveToHiddenSheet(ss, "_DB_META", { 
-      stores: state.stores, 
-      recurring: state.recurringExpenses, 
-      prefs: state.offerPrefs,
-      lastUpdated: state.lastUpdated 
-    });
+    // --- NOMI FOGLI DATABASE ---
+    var SHEET_EXPENSES = "_DB_EXPENSES";
+    var SHEET_INCOMES = "_DB_INCOMES";
+    var SHEET_SHOPPING = "_DB_SHOPPING";
+    var SHEET_META = "_DB_META";
 
-    return response({ success: true, timestamp: Date.now() });
-  }
+    if (action === "SET_STATE") {
+      var state = data.state;
+      
+      // Salva ogni pezzo nel suo foglio dedicato
+      saveJsonToSheet(ss, SHEET_EXPENSES, state.expenses || []);
+      saveJsonToSheet(ss, SHEET_INCOMES, state.incomes || []);
+      saveJsonToSheet(ss, SHEET_SHOPPING, state.shoppingList || []);
+      
+      var metaData = {
+        stores: state.stores || [],
+        recurring: state.recurringExpenses || [],
+        prefs: state.offerPrefs || {},
+        lastUpdated: state.lastUpdated || Date.now()
+      };
+      saveJsonToSheet(ss, SHEET_META, metaData);
 
-  // --- CARICAMENTO STATO (DA FOGLI SEPARATI) ---
-  if (action === "GET_STATE") {
-    var expenses = loadFromHiddenSheet(ss, "_DB_EXPENSES") || [];
-    var incomes = loadFromHiddenSheet(ss, "_DB_INCOMES") || [];
-    var shoppingList = loadFromHiddenSheet(ss, "_DB_SHOPPING") || [];
-    var meta = loadFromHiddenSheet(ss, "_DB_META") || {};
-
-    return response({
-      expenses: expenses,
-      incomes: incomes,
-      shoppingList: shoppingList,
-      stores: meta.stores || [],
-      recurringExpenses: meta.recurring || [],
-      offerPrefs: meta.prefs || {},
-      lastUpdated: meta.lastUpdated || 0
-    });
-  }
-
-  // --- REPORT TABELLARE (LEGGIBILE DA UMANI) ---
-  if (action === "ADD_REPORT") {
-    var expense = data.expense;
-    var targetSheetName = data.sheetName; 
-    var sheet = ss.getSheetByName(targetSheetName);
-    if (!sheet) {
-      sheet = ss.insertSheet(targetSheetName);
-      sheet.appendRow(["ID", "Data", "Prodotto", "Negozio", "Categoria", "Quantità", "Prezzo Unit.", "Totale"]);
-      sheet.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#E6F4EA");
+      output = { success: true, timestamp: metaData.lastUpdated };
     }
-    // Evita duplicati controllando l'ID
-    var textFinder = sheet.createTextFinder(expense.id);
-    if (textFinder.findAll().length === 0) {
-       sheet.appendRow([
-        expense.id, expense.date, expense.product, expense.store, expense.category, expense.quantity, expense.unitPrice, expense.total
-      ]);
-    }
-    return response("Report Added");
-  }
 
-  return response("Unknown Action");
+    else if (action === "GET_STATE") {
+      // Carica i dati separatamente
+      var expenses = loadJsonFromSheet(ss, SHEET_EXPENSES) || [];
+      var incomes = loadJsonFromSheet(ss, SHEET_INCOMES) || [];
+      var shoppingList = loadJsonFromSheet(ss, SHEET_SHOPPING) || [];
+      var meta = loadJsonFromSheet(ss, SHEET_META) || {};
+
+      output = {
+        expenses: Array.isArray(expenses) ? expenses : [],
+        incomes: Array.isArray(incomes) ? incomes : [],
+        shoppingList: Array.isArray(shoppingList) ? shoppingList : [],
+        stores: Array.isArray(meta.stores) ? meta.stores : [],
+        recurringExpenses: Array.isArray(meta.recurring) ? meta.recurring : [],
+        offerPrefs: meta.prefs || {},
+        lastUpdated: meta.lastUpdated || 0
+      };
+    }
+
+    else if (action === "ADD_REPORT") {
+       // Questa azione serve solo per creare il report leggibile per umani (non usato per sync app)
+       output = { success: true };
+    }
+
+    return ContentService.createTextOutput(JSON.stringify(output)).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ error: error.toString() })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-// Funzione Helper per salvare JSON su un foglio nascosto
-function saveToHiddenSheet(ss, sheetName, data) {
+// Funzione Helper per salvare JSON
+function saveJsonToSheet(ss, sheetName, data) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) { 
     sheet = ss.insertSheet(sheetName);
-    // sheet.hideSheet(); // Decommenta se vuoi nasconderli
+    // sheet.hideSheet(); // Puoi scommentare per nascondere i fogli DB
   }
   sheet.clear();
-  if (data) {
-    // Usiamo la cella A1 per conservare tutto il blocco JSON
-    // Questo è molto più veloce e sicuro per la sincronizzazione app-to-app
-    // rispetto a scrivere riga per riga che può creare errori di parsing
-    sheet.getRange(1,1).setValue(JSON.stringify(data));
-  }
+  var jsonStr = JSON.stringify(data);
+  sheet.getRange(1,1).setValue(jsonStr);
 }
 
 // Funzione Helper per caricare JSON
-function loadFromHiddenSheet(ss, sheetName) {
+function loadJsonFromSheet(ss, sheetName) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) return null;
   var val = sheet.getRange(1,1).getValue();
@@ -103,10 +103,6 @@ function loadFromHiddenSheet(ss, sheetName) {
     return null;
   }
 }
-
-function response(data) {
-  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
-}
 `;
 
 export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ familyProfile, onUpdateProfile, onClose }) => {
@@ -114,7 +110,7 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ familyProfile,
   
   const copyCode = () => {
     navigator.clipboard.writeText(APPS_SCRIPT_CODE.trim());
-    alert("Nuovo Codice copiato! Aggiorna il tuo script su Google.");
+    alert("Nuovo Codice copiato! Incollalo su Google Apps Script e ricorda di fare NUOVA IMPLEMENTAZIONE.");
   };
 
   const handleSaveUrl = () => {
@@ -140,18 +136,16 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ familyProfile,
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-            <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 mb-6">
-                <h3 className="font-bold text-orange-800 flex items-center gap-2 mb-2">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-6">
+                <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-2">
                     <HelpCircle className="w-4 h-4" />
-                    Aggiornamento Critico Richiesto
+                    IMPORTANTE: Aggiorna lo Script
                 </h3>
-                <p className="text-sm text-orange-700 mb-2">
-                  Ho riscritto il sistema di salvataggio per separare <strong>Guadagni</strong>, <strong>Lista Spesa</strong> e <strong>Spese</strong> in fogli diversi.
-                </p>
-                <ol className="list-decimal list-inside text-sm text-orange-700 space-y-2">
-                    <li>Copia il <strong>Nuovo Codice</strong> qui sotto.</li>
-                    <li>Vai su <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold">script.google.com</a> e incolla tutto.</li>
-                    <li>Pubblica di nuovo ("Nuova implementazione").</li>
+                <ol className="list-decimal list-inside text-sm text-blue-700 space-y-2">
+                    <li>Copia il codice qui sotto.</li>
+                    <li>Vai su Google Apps Script (Estensioni {'>'} Apps Script).</li>
+                    <li>Incolla e sostituisci tutto il vecchio codice.</li>
+                    <li className="font-bold text-red-600">Clicca su Pubblica {'>'} Nuova implementazione (Fondamentale!).</li>
                 </ol>
             </div>
 
@@ -161,13 +155,13 @@ export const GoogleSheetSync: React.FC<GoogleSheetSyncProps> = ({ familyProfile,
                         <Copy className="w-3 h-3" /> Copia Codice
                     </button>
                 </div>
-                <pre className="bg-gray-100 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-300 h-32">
+                <pre className="bg-gray-100 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-300 h-64">
                     {APPS_SCRIPT_CODE.trim()}
                 </pre>
             </div>
 
             <div className="border-t border-gray-100 pt-4">
-                <label className="block text-sm font-bold text-gray-700 mb-1">Web App URL</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Web App URL (non cambia se aggiorni lo script)</label>
                 <div className="flex gap-2">
                     <input 
                         type="text" 

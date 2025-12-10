@@ -33,7 +33,8 @@ import {
   BarChart3,
   ChevronRight,
   CloudLightning,
-  Coins
+  Coins,
+  RefreshCw
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget';
@@ -87,7 +88,10 @@ function App() {
   });
 
   // Metadata State
-  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(Date.now());
+  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(() => {
+      const saved = localStorage.getItem('lastDataTimestamp');
+      return saved ? parseInt(saved) : 0;
+  });
   
   const [newOffersCount, setNewOffersCount] = useState(0);
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -104,7 +108,6 @@ function App() {
   const [bgSyncStatus, setBgSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'success'>('idle');
   
   // Refs for sync logic
-  const isFirstLoad = useRef(true);
   const isRemoteUpdate = useRef(false); 
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -119,81 +122,66 @@ function App() {
   }, [familyProfile]);
   useEffect(() => { localStorage.setItem('shoppingList', JSON.stringify(shoppingList)); }, [shoppingList]);
   useEffect(() => { localStorage.setItem('offerPrefs', JSON.stringify(offerPrefs)); }, [offerPrefs]);
+  useEffect(() => { localStorage.setItem('lastDataTimestamp', lastDataTimestamp.toString()); }, [lastDataTimestamp]);
 
   // --- CLOUD SYNC LOGIC ---
 
-  // 1. Initial Load
-  useEffect(() => {
-    const loadFromCloud = async () => {
-        if (!isAuthenticated || !familyProfile?.googleSheetUrl || !isFirstLoad.current) return;
-        setBgSyncStatus('syncing');
-        try {
-            const response = await fetch(familyProfile.googleSheetUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({ action: "GET_STATE" })
-            });
-            const data = await response.json();
-            if (data && data.lastUpdated > lastDataTimestamp) {
-                isRemoteUpdate.current = true;
-                if (data.expenses) setExpenses(data.expenses);
-                if (data.incomes) setIncomes(data.incomes);
-                if (data.stores) setStores(data.stores);
-                if (data.shoppingList) setShoppingList(data.shoppingList);
-                if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
-                setLastDataTimestamp(data.lastUpdated);
-            }
-        } catch (e) {
-            console.warn("Cloud load failed.", e);
-        }
-        setBgSyncStatus('idle');
-        isFirstLoad.current = false;
-    };
-    loadFromCloud();
-  }, [isAuthenticated, familyProfile]);
-
-  // 2. Polling Loop (Aggiornamento automatico ogni 5s)
-  useEffect(() => {
-    if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(familyProfile.googleSheetUrl!, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: "GET_STATE" })
+  const fetchCloudState = async () => {
+    if (!familyProfile?.googleSheetUrl) return;
+    
+    try {
+        const response = await fetch(familyProfile.googleSheetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: "GET_STATE" })
         });
         
         const data = await response.json();
         
-        // Se i dati sul cloud sono più recenti dei nostri
-        if (data && data.lastUpdated && data.lastUpdated > lastDataTimestamp) {
-           console.log("Cloud data is newer. Updating local...");
-           isRemoteUpdate.current = true;
-           
-           if (data.expenses) setExpenses(data.expenses);
-           if (data.incomes) setIncomes(data.incomes); // Sync Incomes
-           if (data.stores) setStores(data.stores);
-           if (data.shoppingList) setShoppingList(data.shoppingList); // Sync Shopping
-           if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
-           
-           setLastDataTimestamp(data.lastUpdated);
+        // LOGICA DI CONTROLLO: Se il server ha dati più recenti OPPURE non abbiamo mai sincronizzato (ts=0)
+        // Scarichiamo tutto.
+        if (data && (data.lastUpdated > lastDataTimestamp || lastDataTimestamp === 0)) {
+            console.log("Remote data is newer. Syncing from cloud...");
+            isRemoteUpdate.current = true; // Blocco il salvataggio automatico inverso
+            
+            // Aggiorno tutti gli stati locali con i dati remoti
+            setExpenses(data.expenses || []);
+            setIncomes(data.incomes || []); // Importante: carica i guadagni
+            setShoppingList(data.shoppingList || []); // Importante: carica la lista
+            
+            if (data.stores && data.stores.length > 0) setStores(data.stores);
+            if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
+            if (data.offerPrefs) setOfferPrefs(data.offerPrefs);
+            
+            setLastDataTimestamp(data.lastUpdated);
+            return true;
         }
+    } catch (e) {
+        console.warn("Sync fetch error", e);
+        return false;
+    }
+    return false;
+  };
 
-      } catch (error) {
-        // Silent fail
-      }
-    }, 5000); // Controllo ogni 5 secondi per essere più reattivo
+  // 1. POLLING AGGRESSIVO: Controlla ogni 4 secondi
+  useEffect(() => {
+    if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
+
+    // Controllo immediato all'avvio
+    fetchCloudState();
+
+    const interval = setInterval(() => {
+        fetchCloudState();
+    }, 4000); // 4000ms = 4 secondi
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, familyProfile, lastDataTimestamp]);
+  }, [isAuthenticated, familyProfile]); // Rimuovo lastDataTimestamp dalle dipendenze per evitare loop
 
-
-  // 3. Auto-Save on Change
+  // 2. AUTO-SAVE: Salva quando l'utente modifica qualcosa
   useEffect(() => {
      if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
-     if (isFirstLoad.current) return;
 
+     // Se l'aggiornamento viene dal cloud, NON risalvare indietro
      if (isRemoteUpdate.current) {
         isRemoteUpdate.current = false;
         return;
@@ -201,6 +189,7 @@ function App() {
 
      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
+     // Aspetta 2 secondi di inattività prima di salvare (Debounce)
      syncTimeoutRef.current = setTimeout(async () => {
         setBgSyncStatus('syncing');
         const now = Date.now();
@@ -233,14 +222,15 @@ function App() {
             console.error("Cloud save failed", e);
             setBgSyncStatus('error');
         }
-     }, 2000); // Save after 2s of inactivity
+     }, 2000);
 
      return () => {
          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
      };
   }, [expenses, incomes, stores, shoppingList, recurringExpenses, offerPrefs, isAuthenticated, familyProfile]);
 
-  // Notifications logic
+  // --- REST OF APP LOGIC ---
+
   useEffect(() => {
     const checkOffersInBackground = async () => {
       if (!offerPrefs.city || offerPrefs.selectedStores.length === 0) return;
@@ -353,6 +343,15 @@ function App() {
 
   const handleOfferPrefsChange = (city: string, stores: string[], notificationsEnabled: boolean) => {
     setOfferPrefs(prev => ({ ...prev, city, selectedStores: stores, hasEnabledNotifications: notificationsEnabled }));
+  };
+
+  // Pulsante Manuale per forzare l'aggiornamento
+  const handleForceRefresh = async () => {
+    setBgSyncStatus('syncing');
+    await fetchCloudState();
+    setBgSyncStatus('success');
+    setTimeout(() => setBgSyncStatus('idle'), 1000);
+    setIsMenuOpen(false);
   };
 
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string) => {
@@ -602,6 +601,11 @@ function App() {
                  
                  <div className="my-6 border-t border-gray-100"></div>
                  
+                 <button onClick={handleForceRefresh} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold">
+                    <RefreshCw className={`w-6 h-6 ${bgSyncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                    <span className="text-lg">Aggiorna Dati</span>
+                 </button>
+
                  <button onClick={() => { setShowGoogleSheet(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
                     <Table className="w-6 h-6" />
                     <span className="text-lg">Cloud Sync (Google)</span>
