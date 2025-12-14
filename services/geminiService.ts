@@ -79,7 +79,7 @@ export interface ReceiptScanResult {
   error?: string;
 }
 
-export const parseReceiptImage = async (base64Image: string): Promise<ReceiptScanResult> => {
+export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ReceiptScanResult> => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -87,7 +87,7 @@ export const parseReceiptImage = async (base64Image: string): Promise<ReceiptSca
         parts: [
           {
             inlineData: {
-              mimeType: 'image/jpeg',
+              mimeType: mimeType,
               data: base64Image
             }
           },

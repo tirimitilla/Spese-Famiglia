@@ -1,3 +1,4 @@
+
 import React, { useRef, useState } from 'react';
 import { Camera, Image as ImageIcon, ScanLine, CheckCircle, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
 import { parseReceiptImage, ReceiptData } from '../services/geminiService';
@@ -16,13 +17,68 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onScanComplete }
   const [foundItemsCount, setFoundItemsCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Funzione per comprimere e convertire l'immagine in JPEG base64
+  const compressAndConvertToBase64 = (file: File): Promise<{ base64: string, mimeType: string }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Ridimensiona se l'immagine è troppo grande (max 1500px lato lungo)
+          const MAX_DIMENSION = 1500;
+          if (width > height) {
+            if (width > MAX_DIMENSION) {
+              height *= MAX_DIMENSION / width;
+              width = MAX_DIMENSION;
+            }
+          } else {
+            if (height > MAX_DIMENSION) {
+              width *= MAX_DIMENSION / height;
+              height = MAX_DIMENSION;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error("Impossibile creare il contesto canvas"));
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Converte sempre in JPEG con qualità 0.7 (buona per testo, leggera)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          const base64 = dataUrl.split(',')[1];
+          
+          resolve({ base64, mimeType: 'image/jpeg' });
+        };
+        
+        img.onerror = (err) => reject(err);
+      };
+      
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validazione dimensione file (max 5MB per evitare timeout lenti)
-    if (file.size > 5 * 1024 * 1024) {
-       setErrorMessage("L'immagine è troppo grande. Usa una foto sotto i 5MB.");
+    // Rimuovo il check rigido dei 5MB sul file originale perché ora comprimiamo
+    // Ma evitiamo file assurdi > 20MB
+    if (file.size > 20 * 1024 * 1024) {
+       setErrorMessage("L'immagine è eccessivamente grande. Usa una foto più piccola.");
        setStatus('error');
        return;
     }
@@ -31,44 +87,33 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onScanComplete }
     setErrorMessage('');
 
     try {
-      // Convert file to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
+      // 1. Comprimi e Converti
+      const { base64, mimeType } = await compressAndConvertToBase64(file);
       
-      reader.onloadend = async () => {
-        const base64String = reader.result as string;
-        // Remove data URL prefix
-        const base64Content = base64String.split(',')[1];
-        
-        const result = await parseReceiptImage(base64Content);
-        
-        if (result.success && result.data) {
-          onScanComplete(result.data);
-          setFoundItemsCount(result.data.items.length);
-          setStatus('success');
-          
-          // Reset to idle after 3 seconds
-          setTimeout(() => {
-            setStatus('idle');
-          }, 3000);
-        } else {
-          setErrorMessage(result.error || "Impossibile leggere lo scontrino.");
-          setStatus('error');
-        }
-        
-        // Reset inputs to allow re-selecting same file if needed
-        if (cameraInputRef.current) cameraInputRef.current.value = '';
-        if (galleryInputRef.current) galleryInputRef.current.value = '';
-      };
+      // 2. Invia a Gemini
+      const result = await parseReceiptImage(base64, mimeType);
       
-      reader.onerror = () => {
-        setErrorMessage("Errore nella lettura del file.");
+      if (result.success && result.data) {
+        onScanComplete(result.data);
+        setFoundItemsCount(result.data.items.length);
+        setStatus('success');
+        
+        // Reset to idle after 3 seconds
+        setTimeout(() => {
+          setStatus('idle');
+        }, 3000);
+      } else {
+        setErrorMessage(result.error || "Impossibile leggere lo scontrino.");
         setStatus('error');
-      };
+      }
+      
+      // Reset inputs to allow re-selecting same file if needed
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
       
     } catch (error) {
       console.error("Error processing image", error);
-      setErrorMessage("Errore imprevisto durante l'elaborazione.");
+      setErrorMessage("Errore durante l'elaborazione dell'immagine.");
       setStatus('error');
     }
   };
@@ -149,7 +194,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onScanComplete }
           </div>
           <h3 className="font-semibold text-lg">Analisi in corso...</h3>
           <p className="text-emerald-100 text-xs mt-1 text-center">
-            Gemini sta leggendo il tuo scontrino
+            Sto ottimizzando e leggendo lo scontrino...
           </p>
         </div>
       )}

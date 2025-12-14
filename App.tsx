@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DEFAULT_STORES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, OfferPreferences, Income } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, OfferPreferences, Income, CategoryDefinition } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -16,6 +16,7 @@ import { GoogleSheetSync } from './components/GoogleSheetSync';
 import { ShoppingListManager } from './components/ShoppingListManager';
 import { OffersFinder } from './components/OffersFinder';
 import { IncomeManager } from './components/IncomeManager';
+import { CategoryManager } from './components/CategoryManager';
 import { categorizeExpense, ReceiptData, findFlyerOffers } from './services/geminiService';
 import { 
   WalletCards, 
@@ -32,29 +33,27 @@ import {
   Repeat,
   BarChart3,
   ChevronRight,
-  CloudLightning,
   Coins,
-  RefreshCw
+  Copy,
+  Check,
+  Tag
 } from 'lucide-react';
 
-type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget';
+type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget' | 'categories';
 
 function App() {
+  // --- STATE ---
   const [familyProfile, setFamilyProfile] = useState<FamilyProfile | null>(() => {
     const saved = localStorage.getItem('familyProfile');
     return saved ? JSON.parse(saved) : null;
   });
   
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(!!familyProfile);
 
-  // Data State
+  // Load Initial Data from LocalStorage
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const saved = localStorage.getItem('expenses');
-    const parsed = saved ? JSON.parse(saved) : [];
-    return parsed.map((e: any) => ({
-      ...e,
-      unitPrice: e.unitPrice !== undefined ? e.unitPrice : (e.total / (e.quantity || 1))
-    }));
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [incomes, setIncomes] = useState<Income[]>(() => {
@@ -67,6 +66,11 @@ function App() {
     return saved ? JSON.parse(saved) : DEFAULT_STORES;
   });
 
+  const [categories, setCategories] = useState<CategoryDefinition[]>(() => {
+    const saved = localStorage.getItem('categories');
+    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
+  });
+
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>(() => {
     const saved = localStorage.getItem('recurringExpenses');
     return saved ? JSON.parse(saved) : [];
@@ -77,6 +81,7 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Local preferences
   const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>(() => {
     const saved = localStorage.getItem('offerPrefs');
     return saved ? JSON.parse(saved) : { 
@@ -85,12 +90,6 @@ function App() {
       lastCheckDate: 0, 
       hasEnabledNotifications: false 
     };
-  });
-
-  // Metadata State
-  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(() => {
-      const saved = localStorage.getItem('lastDataTimestamp');
-      return saved ? parseInt(saved) : 0;
   });
   
   const [newOffersCount, setNewOffersCount] = useState(0);
@@ -104,133 +103,43 @@ function App() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showGoogleSheet, setShowGoogleSheet] = useState(false);
-  
-  const [bgSyncStatus, setBgSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'success'>('idle');
-  
-  // Refs for sync logic
-  const isRemoteUpdate = useRef(false); 
-  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
-  // Persistence LocalStorage
-  useEffect(() => { localStorage.setItem('expenses', JSON.stringify(expenses)); }, [expenses]);
-  useEffect(() => { localStorage.setItem('incomes', JSON.stringify(incomes)); }, [incomes]);
-  useEffect(() => { localStorage.setItem('stores', JSON.stringify(stores)); }, [stores]);
-  useEffect(() => { localStorage.setItem('recurringExpenses', JSON.stringify(recurringExpenses)); }, [recurringExpenses]);
+  // --- PERSISTENCE EFFECT ---
+  useEffect(() => {
+    localStorage.setItem('expenses', JSON.stringify(expenses));
+  }, [expenses]);
+
+  useEffect(() => {
+    localStorage.setItem('incomes', JSON.stringify(incomes));
+  }, [incomes]);
+
+  useEffect(() => {
+    localStorage.setItem('stores', JSON.stringify(stores));
+  }, [stores]);
+
+  useEffect(() => {
+    localStorage.setItem('categories', JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem('recurringExpenses', JSON.stringify(recurringExpenses));
+  }, [recurringExpenses]);
+
+  useEffect(() => {
+    localStorage.setItem('shoppingList', JSON.stringify(shoppingList));
+  }, [shoppingList]);
+
   useEffect(() => {
     if (familyProfile) localStorage.setItem('familyProfile', JSON.stringify(familyProfile));
     else localStorage.removeItem('familyProfile');
   }, [familyProfile]);
-  useEffect(() => { localStorage.setItem('shoppingList', JSON.stringify(shoppingList)); }, [shoppingList]);
-  useEffect(() => { localStorage.setItem('offerPrefs', JSON.stringify(offerPrefs)); }, [offerPrefs]);
-  useEffect(() => { localStorage.setItem('lastDataTimestamp', lastDataTimestamp.toString()); }, [lastDataTimestamp]);
+  
+  useEffect(() => { 
+    localStorage.setItem('offerPrefs', JSON.stringify(offerPrefs)); 
+  }, [offerPrefs]);
 
-  // --- CLOUD SYNC LOGIC ---
-
-  const fetchCloudState = async () => {
-    if (!familyProfile?.googleSheetUrl) return;
-    
-    try {
-        const response = await fetch(familyProfile.googleSheetUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: "GET_STATE" })
-        });
-        
-        const data = await response.json();
-        
-        // LOGICA DI CONTROLLO: Se il server ha dati più recenti OPPURE non abbiamo mai sincronizzato (ts=0)
-        // Scarichiamo tutto.
-        if (data && (data.lastUpdated > lastDataTimestamp || lastDataTimestamp === 0)) {
-            console.log("Remote data is newer. Syncing from cloud...");
-            isRemoteUpdate.current = true; // Blocco il salvataggio automatico inverso
-            
-            // Aggiorno tutti gli stati locali con i dati remoti
-            setExpenses(data.expenses || []);
-            setIncomes(data.incomes || []); // Importante: carica i guadagni
-            setShoppingList(data.shoppingList || []); // Importante: carica la lista
-            
-            if (data.stores && data.stores.length > 0) setStores(data.stores);
-            if (data.recurringExpenses) setRecurringExpenses(data.recurringExpenses);
-            if (data.offerPrefs) setOfferPrefs(data.offerPrefs);
-            
-            setLastDataTimestamp(data.lastUpdated);
-            return true;
-        }
-    } catch (e) {
-        console.warn("Sync fetch error", e);
-        return false;
-    }
-    return false;
-  };
-
-  // 1. POLLING AGGRESSIVO: Controlla ogni 4 secondi
-  useEffect(() => {
-    if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
-
-    // Controllo immediato all'avvio
-    fetchCloudState();
-
-    const interval = setInterval(() => {
-        fetchCloudState();
-    }, 4000); // 4000ms = 4 secondi
-
-    return () => clearInterval(interval);
-  }, [isAuthenticated, familyProfile]); // Rimuovo lastDataTimestamp dalle dipendenze per evitare loop
-
-  // 2. AUTO-SAVE: Salva quando l'utente modifica qualcosa
-  useEffect(() => {
-     if (!isAuthenticated || !familyProfile?.googleSheetUrl) return;
-
-     // Se l'aggiornamento viene dal cloud, NON risalvare indietro
-     if (isRemoteUpdate.current) {
-        isRemoteUpdate.current = false;
-        return;
-     }
-
-     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-
-     // Aspetta 2 secondi di inattività prima di salvare (Debounce)
-     syncTimeoutRef.current = setTimeout(async () => {
-        setBgSyncStatus('syncing');
-        const now = Date.now();
-        try {
-            const payload = {
-                action: "SET_STATE",
-                state: {
-                    expenses,
-                    incomes,
-                    stores,
-                    shoppingList,
-                    recurringExpenses,
-                    offerPrefs,
-                    lastUpdated: now
-                }
-            };
-
-            await fetch(familyProfile.googleSheetUrl!, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            
-            setLastDataTimestamp(now);
-            
-            setBgSyncStatus('success');
-            setTimeout(() => setBgSyncStatus('idle'), 2000);
-        } catch (e) {
-            console.error("Cloud save failed", e);
-            setBgSyncStatus('error');
-        }
-     }, 2000);
-
-     return () => {
-         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-     };
-  }, [expenses, incomes, stores, shoppingList, recurringExpenses, offerPrefs, isAuthenticated, familyProfile]);
-
-  // --- REST OF APP LOGIC ---
-
+  // --- OFFERS CHECK ---
   useEffect(() => {
     const checkOffersInBackground = async () => {
       if (!offerPrefs.city || offerPrefs.selectedStores.length === 0) return;
@@ -249,10 +158,13 @@ function App() {
     return () => clearTimeout(timer);
   }, [offerPrefs.city, offerPrefs.selectedStores, offerPrefs.lastCheckDate]);
 
-  const categories = useMemo(() => {
-    const unique = new Set(expenses.map(e => e.category));
-    return Array.from(unique).sort();
-  }, [expenses]);
+  // --- MEMOS ---
+  const uniqueCategoryNames = useMemo(() => {
+    // Merge existing categories in DB with those defined in settings to ensure dropdowns work
+    const fromExpenses = new Set(expenses.map(e => e.category));
+    const fromSettings = new Set(categories.map(c => c.name));
+    return Array.from(new Set([...fromExpenses, ...fromSettings])).sort();
+  }, [expenses, categories]);
 
   const filteredExpenses = useMemo(() => {
     return expenses.filter(expense => {
@@ -268,10 +180,23 @@ function App() {
     return filteredExpenses.reduce((sum, e) => sum + e.total, 0);
   }, [filteredExpenses]);
 
+  // Logic updated to use reminderDays
   const dueRecurringExpenses = useMemo(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return recurringExpenses.filter(r => new Date(r.nextDueDate) <= today);
+    today.setHours(0, 0, 0, 0); // Normalize today
+
+    return recurringExpenses.filter(r => {
+        const dueDate = new Date(r.nextDueDate);
+        dueDate.setHours(0, 0, 0, 0); // Normalize due date
+        
+        // Calculate the "Alert Date" (Due Date - Reminder Days)
+        const reminderDays = r.reminderDays || 0;
+        const alertDate = new Date(dueDate);
+        alertDate.setDate(dueDate.getDate() - reminderDays);
+
+        // Show if today is on or after the alert date
+        return today >= alertDate;
+    }).sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime());
   }, [recurringExpenses]);
 
   const productHistoryMap = useMemo(() => {
@@ -282,95 +207,43 @@ function App() {
     return map;
   }, [expenses]);
 
-  const getMonthSheetName = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      const month = date.toLocaleString('it-IT', { month: 'long' });
-      const year = date.getFullYear();
-      return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
-    } catch (e) {
-      return "Spese Generiche";
-    }
-  };
-
-  const syncReportToSheet = async (action: 'ADD' | 'UPDATE' | 'DELETE', expense: Expense) => {
-    if (!familyProfile?.googleSheetUrl) return;
-    if (action !== 'ADD') return; 
-
-    try {
-      const dynamicSheetName = getMonthSheetName(expense.date);
-      const payload = {
-        action: "ADD_REPORT", 
-        sheetName: dynamicSheetName, 
-        expense: {
-            ...expense,
-            date: new Date(expense.date).toLocaleDateString('it-IT'),
-            member: 'Famiglia'
-        }
-      };
-
-      await fetch(familyProfile.googleSheetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } catch (error) {
-      console.error("Report sync failed", error);
-    }
-  };
-
+  // --- HANDLERS ---
   const handleLogin = () => setIsAuthenticated(true);
   
-  const handleSetupProfile = (profile: FamilyProfile) => {
+  const handleSetupComplete = (profile: FamilyProfile) => {
     setFamilyProfile(profile);
     setIsAuthenticated(true);
   };
 
-  const handleUpdateProfile = (updated: FamilyProfile) => {
-    setFamilyProfile(updated);
-  };
-
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setFamilyProfile(null);
+    localStorage.removeItem('familyProfile');
     setIsMenuOpen(false);
   };
 
   const handleResetProfile = () => {
-    setFamilyProfile(null);
-    setIsAuthenticated(false);
+    handleLogout();
   };
 
   const handleOfferPrefsChange = (city: string, stores: string[], notificationsEnabled: boolean) => {
     setOfferPrefs(prev => ({ ...prev, city, selectedStores: stores, hasEnabledNotifications: notificationsEnabled }));
   };
 
-  // Pulsante Manuale per forzare l'aggiornamento
-  const handleForceRefresh = async () => {
-    setBgSyncStatus('syncing');
-    await fetchCloudState();
-    setBgSyncStatus('success');
-    setTimeout(() => setBgSyncStatus('idle'), 1000);
-    setIsMenuOpen(false);
-  };
-
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string) => {
     setIsAIProcessing(true);
     const category = await categorizeExpense(product, store);
-    
     const newExpense: Expense = {
       id: crypto.randomUUID(),
       product, quantity, unitPrice, total, store,
       date: new Date().toISOString(),
       category
     };
-
     setExpenses(prev => [newExpense, ...prev]);
     setIsAIProcessing(false);
-    syncReportToSheet('ADD', newExpense);
   };
 
-  const handleAddIncome = (source: string, amount: number, date: string) => {
+  const handleAddIncome = async (source: string, amount: number, date: string) => {
     const newIncome: Income = {
       id: crypto.randomUUID(),
       source,
@@ -380,17 +253,15 @@ function App() {
     setIncomes(prev => [newIncome, ...prev]);
   };
 
-  const handleDeleteIncome = (id: string) => {
+  const handleDeleteIncome = async (id: string) => {
     setIncomes(prev => prev.filter(i => i.id !== id));
   };
 
-  const handleUpdateExpense = (updated: Expense) => {
+  const handleUpdateExpense = async (updated: Expense) => {
     setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
   };
 
-  const handleDeleteExpense = (id: string) => {
-    const expenseToDelete = expenses.find(e => e.id === id);
-    if (!expenseToDelete) return;
+  const handleDeleteExpense = async (id: string) => {
     if (confirm('Sei sicuro di voler eliminare questa spesa?')) {
       setExpenses(prev => prev.filter(e => e.id !== id));
     }
@@ -400,17 +271,18 @@ function App() {
     const storeExists = stores.some(s => s.name.toLowerCase() === data.store.toLowerCase());
     if (!storeExists && data.store) handleAddStore(data.store);
 
-    const newExpenses: Expense[] = data.items.map(item => ({
-      id: crypto.randomUUID(),
-      product: item.product, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total,
-      store: data.store || 'Non specificato',
-      date: data.date || new Date().toISOString(),
-      category: item.category
+    const newExpenses = data.items.map(item => ({
+        id: crypto.randomUUID(),
+        product: item.product,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total,
+        store: data.store || 'Non specificato',
+        date: data.date || new Date().toISOString(),
+        category: item.category
     }));
-
     setExpenses(prev => [...newExpenses, ...prev]);
-    alert(`Aggiunti ${newExpenses.length} prodotti con successo!`);
-    newExpenses.forEach(exp => syncReportToSheet('ADD', exp));
+    alert(`Aggiunti ${data.items.length} prodotti con successo!`);
   };
 
   const handleExportCSV = () => {
@@ -428,50 +300,65 @@ function App() {
     link.click();
   };
 
-  const handleAddStore = (name: string) => {
+  const handleAddStore = async (name: string) => {
     if (!stores.find(s => s.name.toLowerCase() === name.toLowerCase())) {
-      setStores(prev => [...prev, { id: crypto.randomUUID(), name }]);
+        const newStore = { id: crypto.randomUUID(), name };
+        setStores(prev => [...prev, newStore]);
     }
   };
 
-  const handleAddRecurring = (product: string, amount: number, store: string, frequency: Frequency, nextDate: string) => {
-    setRecurringExpenses(prev => [...prev, { id: crypto.randomUUID(), product, amount, store, frequency, nextDueDate: nextDate }]);
+  const handleAddRecurring = async (product: string, amount: number, store: string, frequency: Frequency, nextDate: string, reminderDays: number) => {
+    const newItem: RecurringExpense = { 
+        id: crypto.randomUUID(), 
+        product, amount, store, frequency, 
+        nextDueDate: nextDate,
+        reminderDays
+    };
+    setRecurringExpenses(prev => [...prev, newItem]);
   };
 
-  const handleDeleteRecurring = (id: string) => {
+  const handleDeleteRecurring = async (id: string) => {
     setRecurringExpenses(prev => prev.filter(r => r.id !== id));
   };
 
   const handleProcessRecurring = async (recExpense: RecurringExpense) => {
     await handleAddExpense(recExpense.product, 1, recExpense.amount, recExpense.amount, recExpense.store);
+    
     const nextDate = new Date(recExpense.nextDueDate);
     if (recExpense.frequency === 'settimanale') nextDate.setDate(nextDate.getDate() + 7);
     if (recExpense.frequency === 'mensile') nextDate.setMonth(nextDate.getMonth() + 1);
     if (recExpense.frequency === 'annuale') nextDate.setFullYear(nextDate.getFullYear() + 1);
-    setRecurringExpenses(prev => prev.map(r => r.id === recExpense.id ? { ...r, nextDueDate: nextDate.toISOString().split('T')[0] } : r));
+    
+    const updated = { ...recExpense, nextDueDate: nextDate.toISOString().split('T')[0] };
+    setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
   };
 
-  const handleAddShoppingItem = (product: string, store: string) => {
-    setShoppingList(prev => [...prev, { id: crypto.randomUUID(), product, store, completed: false }]);
+  const handleAddShoppingItem = async (product: string, store: string) => {
+    const newItem = { id: crypto.randomUUID(), product, store, completed: false };
+    setShoppingList(prev => [...prev, newItem]);
   };
 
-  const handleToggleShoppingItem = (id: string) => {
+  const handleToggleShoppingItem = async (id: string) => {
     setShoppingList(prev => prev.map(i => i.id === id ? { ...i, completed: !i.completed } : i));
   };
 
-  const handleDeleteShoppingItem = (id: string) => {
+  const handleDeleteShoppingItem = async (id: string) => {
     setShoppingList(prev => prev.filter(i => i.id !== id));
   };
 
-  const handleSyncImport = (data: SyncData) => {
-    if (confirm('Importando i dati sovrascriverai quelli attuali. Continuare?')) {
-      setExpenses(data.expenses);
-      setIncomes(data.incomes || []);
-      setStores(data.stores);
-      setRecurringExpenses(data.recurringExpenses);
-      setShoppingList(data.shoppingList || []);
-      setFamilyProfile(data.familyProfile);
-    }
+  // Sync Import Handler
+  const handleImportData = (data: SyncData) => {
+    setExpenses(data.expenses || []);
+    setIncomes(data.incomes || []);
+    setStores(data.stores || DEFAULT_STORES);
+    setRecurringExpenses(data.recurringExpenses || []);
+    setShoppingList(data.shoppingList || []);
+    if (data.categories) setCategories(data.categories);
+    
+    // Ensure ID is present if missing from legacy data
+    const profile = data.familyProfile;
+    if (profile && !profile.id) profile.id = "LOCAL";
+    setFamilyProfile(profile);
   };
 
   const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string, badge?: number }> = ({ view, icon, label, badge }) => (
@@ -509,14 +396,14 @@ function App() {
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3"><History className="w-7 h-7 text-emerald-600" /> Storico Transazioni</h2>
                 {expenses.length > 0 && <button onClick={handleExportCSV} className="flex items-center gap-2 text-sm font-bold text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100"><Download className="w-5 h-5" /> Esporta</button>}
             </div>
-            <ExpenseFilters stores={stores} categories={categories} filters={filters} onFilterChange={(k, v) => setFilters(p => ({ ...p, [k]: v }))} onClearFilters={() => setFilters({ store: '', category: '', startDate: '', endDate: '' })} />
+            <ExpenseFilters stores={stores} categories={uniqueCategoryNames} filters={filters} onFilterChange={(k, v) => setFilters(p => ({ ...p, [k]: v }))} onClearFilters={() => setFilters({ store: '', category: '', startDate: '', endDate: '' })} />
             {(filters.store || filters.category || filters.startDate || filters.endDate) && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4 flex justify-between items-center">
                     <span className="text-base text-emerald-800 font-bold">Totale spese filtrate:</span>
                     <span className="text-xl font-extrabold text-emerald-700">€{filteredTotal.toFixed(2)}</span>
                 </div>
             )}
-            <ExpenseList expenses={filteredExpenses} members={familyProfile?.members || []} stores={stores} onDelete={handleDeleteExpense} onEdit={handleUpdateExpense} />
+            <ExpenseList expenses={filteredExpenses} members={familyProfile?.members || []} stores={stores} categories={categories} onDelete={handleDeleteExpense} onEdit={handleUpdateExpense} />
           </div>
         );
       case 'shopping': return (
@@ -550,11 +437,16 @@ function App() {
               <IncomeManager incomes={incomes} expenses={expenses} onAddIncome={handleAddIncome} onDeleteIncome={handleDeleteIncome} />
           </div>
       );
+      case 'categories': return (
+        <div className="animate-in fade-in">
+            <CategoryManager categories={categories} onUpdateCategories={setCategories} />
+        </div>
+      );
       default: return null;
     }
   };
 
-  if (!isAuthenticated) return <LoginScreen existingProfile={familyProfile} onLogin={handleLogin} onSetupComplete={handleSetupProfile} onResetProfile={handleResetProfile} />;
+  if (!isAuthenticated) return <LoginScreen existingProfile={familyProfile} onLogin={handleLogin} onSetupComplete={handleSetupComplete} onResetProfile={handleResetProfile} />;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-24 safe-area-top">
@@ -567,13 +459,12 @@ function App() {
              </button>
              <div className="flex items-center gap-3 overflow-hidden" onClick={() => setCurrentView('dashboard')}>
                 <div className="bg-emerald-100 p-2 rounded-xl flex-shrink-0"><WalletCards className="w-6 h-6 text-emerald-600" /></div>
-                <div className="min-w-0 cursor-pointer"><h1 className="font-bold text-lg leading-tight text-gray-800 truncate">Spese Familiari</h1></div>
+                <div className="min-w-0 cursor-pointer">
+                    <h1 className="font-bold text-lg leading-tight text-gray-800 truncate">Spese {familyProfile?.familyName}</h1>
+                </div>
              </div>
           </div>
           <div className="flex items-center gap-2">
-             {bgSyncStatus === 'syncing' && <div className="text-xs font-bold text-emerald-600 flex items-center gap-1 animate-pulse bg-emerald-50 px-2 py-1 rounded-full"><CloudLightning className="w-3 h-3" /> Sync...</div>}
-             {bgSyncStatus === 'success' && <div className="text-xs font-bold text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-full"><CloudLightning className="w-3 h-3" /> Salvato</div>}
-             {bgSyncStatus === 'error' && <div className="text-xs font-bold text-red-600 flex items-center gap-1 bg-red-50 px-2 py-1 rounded-full"><CloudLightning className="w-3 h-3" /> Errore Sync</div>}
              <div className="hidden md:flex items-center gap-2">
                <button onClick={() => setCurrentView('shopping')} className="p-3 text-gray-500 hover:text-emerald-600" title="Lista Spesa"><ShoppingCart className="w-6 h-6" /></button>
                <button onClick={() => setCurrentView('history')} className="p-3 text-gray-500 hover:text-emerald-600" title="Storico"><History className="w-6 h-6" /></button>
@@ -587,10 +478,13 @@ function App() {
            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setIsMenuOpen(false)}></div>
            <div className="relative w-[85%] max-w-xs bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-200">
               <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                 <div><h2 className="font-bold text-xl text-gray-800">Menù</h2><p className="text-sm text-gray-500 font-medium">Famiglia {familyProfile?.familyName}</p></div>
+                 <div>
+                     <h2 className="font-bold text-xl text-gray-800">Menù</h2>
+                 </div>
                  <button onClick={() => setIsMenuOpen(false)} className="p-3 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                 
                  <MenuButton view="dashboard" icon={<Home />} label="Home & Scansione" />
                  <MenuButton view="budget" icon={<Coins />} label="Bilancio & Guadagni" />
                  <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" />
@@ -599,34 +493,31 @@ function App() {
                  <MenuButton view="recurring" icon={<Repeat />} label="Spese Ricorrenti" />
                  <MenuButton view="analytics" icon={<BarChart3 />} label="Analisi & Grafici" />
                  
-                 <div className="my-6 border-t border-gray-100"></div>
-                 
-                 <button onClick={handleForceRefresh} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold">
-                    <RefreshCw className={`w-6 h-6 ${bgSyncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                    <span className="text-lg">Aggiorna Dati</span>
+                 <div className="my-2 border-t border-gray-100"></div>
+                 <MenuButton view="categories" icon={<Tag />} label="Gestisci Categorie" />
+                 <div className="my-2 border-t border-gray-100"></div>
+
+                 <button onClick={() => { setShowSync(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
+                    <Share2 className="w-6 h-6" />
+                    <span className="text-lg">Sincronizza Dati</span>
                  </button>
 
                  <button onClick={() => { setShowGoogleSheet(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
                     <Table className="w-6 h-6" />
-                    <span className="text-lg">Cloud Sync (Google)</span>
-                 </button>
-
-                 <button onClick={() => { setShowSync(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
-                    <Share2 className="w-6 h-6" />
-                    <span className="text-lg">Sincronizza Manuale</span>
+                    <span className="text-lg">Backup su Google Sheets</span>
                  </button>
 
                  <button onClick={handleLogout} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold">
                     <LogOut className="w-6 h-6" />
-                    <span className="text-lg">Esci</span>
+                    <span className="text-lg">Esci / Reset Famiglia</span>
                  </button>
               </div>
            </div>
         </div>
       )}
 
-      {showSync && familyProfile && <DataSync data={{ expenses, incomes, stores, recurringExpenses, shoppingList, familyProfile }} onImport={handleSyncImport} onClose={() => setShowSync(false)} />}
-      {showGoogleSheet && familyProfile && <GoogleSheetSync expenses={expenses} familyProfile={familyProfile} onUpdateProfile={handleUpdateProfile} onClose={() => setShowGoogleSheet(false)} />}
+      {showSync && familyProfile && <DataSync data={{ expenses, incomes, stores, recurringExpenses, shoppingList, familyProfile, categories }} onImport={handleImportData} onClose={() => setShowSync(false)} />}
+      {showGoogleSheet && familyProfile && <GoogleSheetSync expenses={expenses} familyProfile={familyProfile} onUpdateProfile={(p) => setFamilyProfile(p)} onClose={() => setShowGoogleSheet(false)} />}
       <main className="max-w-2xl mx-auto px-4 py-6">{renderContent()}</main>
     </div>
   );
