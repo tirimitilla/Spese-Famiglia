@@ -36,7 +36,8 @@ import {
   Coins,
   Copy,
   Check,
-  Tag
+  Tag,
+  Github
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget' | 'categories';
@@ -506,6 +507,11 @@ function App() {
                     <Table className="w-6 h-6" />
                     <span className="text-lg">Backup su Google Sheets</span>
                  </button>
+
+                 <a href="https://github.com/tirimitilla/Spese-Famiglia" target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
+                    <Github className="w-6 h-6" />
+                    <span className="text-lg">Repository GitHub</span>
+                 </a>
 
                  <button onClick={handleLogout} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold">
                     <LogOut className="w-6 h-6" />
