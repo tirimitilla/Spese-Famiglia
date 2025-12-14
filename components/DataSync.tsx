@@ -10,7 +10,7 @@ interface DataSyncProps {
     recurringExpenses: RecurringExpense[];
     shoppingList: ShoppingItem[];
     familyProfile: FamilyProfile | null;
-    categories: CategoryDefinition[];
+    categories: CategoryDefinition[]; // Aggiunto per risolvere errore TS2353
   };
   onImport: (data: SyncData) => void;
   onClose: () => void;
