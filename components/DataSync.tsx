@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem, Income } from '../types';
+import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem, Income, CategoryDefinition } from '../types';
 import { Share2, Copy, Download, Upload, CheckCircle, AlertCircle, X } from 'lucide-react';
 
 interface DataSyncProps {
@@ -11,6 +11,7 @@ interface DataSyncProps {
     recurringExpenses: RecurringExpense[];
     shoppingList: ShoppingItem[];
     familyProfile: FamilyProfile | null;
+    categories: CategoryDefinition[];
   };
   onImport: (data: SyncData) => void;
   onClose: () => void;
@@ -35,6 +36,7 @@ export const DataSync: React.FC<DataSyncProps> = ({ data, onImport, onClose }) =
       ...data,
       incomes: data.incomes || [],
       familyProfile: data.familyProfile!,
+      categories: data.categories,
       timestamp: Date.now(),
     };
     return utf8_to_b64(JSON.stringify(payload));
