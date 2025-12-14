@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { SyncData, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem, Income, CategoryDefinition } from '../types';
 import { Share2, Copy, Download, Upload, CheckCircle, AlertCircle, X } from 'lucide-react';
