@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, OfferPreferences, Income, CategoryDefinition } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -18,6 +17,7 @@ import { OffersFinder } from './components/OffersFinder';
 import { IncomeManager } from './components/IncomeManager';
 import { CategoryManager } from './components/CategoryManager';
 import { categorizeExpense, ReceiptData, findFlyerOffers } from './services/geminiService';
+import * as SupabaseService from '../services/supabaseService';
 import { 
   WalletCards, 
   Download, 
@@ -37,7 +37,8 @@ import {
   Copy,
   Check,
   Tag,
-  Github
+  Github,
+  Cloud
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget' | 'categories';
@@ -50,39 +51,17 @@ function App() {
   });
   
   const [isAuthenticated, setIsAuthenticated] = useState(!!familyProfile);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Load Initial Data from LocalStorage
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const saved = localStorage.getItem('expenses');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Initial Data (Empty initially, populated from Supabase)
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
+  const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
+  const [categories, setCategories] = useState<CategoryDefinition[]>(DEFAULT_CATEGORIES);
+  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
 
-  const [incomes, setIncomes] = useState<Income[]>(() => {
-    const saved = localStorage.getItem('incomes');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [stores, setStores] = useState<Store[]>(() => {
-    const saved = localStorage.getItem('stores');
-    return saved ? JSON.parse(saved) : DEFAULT_STORES;
-  });
-
-  const [categories, setCategories] = useState<CategoryDefinition[]>(() => {
-    const saved = localStorage.getItem('categories');
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
-  });
-
-  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>(() => {
-    const saved = localStorage.getItem('recurringExpenses');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>(() => {
-    const saved = localStorage.getItem('shoppingList');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  // Local preferences
+  // Local preferences (keep local as they are per-device)
   const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>(() => {
     const saved = localStorage.getItem('offerPrefs');
     return saved ? JSON.parse(saved) : { 
@@ -104,33 +83,49 @@ function App() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showGoogleSheet, setShowGoogleSheet] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
 
-  // --- PERSISTENCE EFFECT ---
+  // --- SUPABASE LOAD EFFECT ---
   useEffect(() => {
-    localStorage.setItem('expenses', JSON.stringify(expenses));
-  }, [expenses]);
+    if (familyProfile?.id) {
+      setIsLoadingData(true);
+      const loadData = async () => {
+        try {
+          // Verify profile exists on server
+          const serverProfile = await SupabaseService.getFamilyProfile(familyProfile.id);
+          if (!serverProfile) {
+            // If it doesn't exist (first sync of a local profile), create it
+            await SupabaseService.createFamilyProfile(familyProfile);
+          }
 
-  useEffect(() => {
-    localStorage.setItem('incomes', JSON.stringify(incomes));
-  }, [incomes]);
+          // Parallel Fetch
+          const [exp, inc, sto, cat, rec, shop] = await Promise.all([
+            SupabaseService.fetchExpenses(familyProfile.id),
+            SupabaseService.fetchIncomes(familyProfile.id),
+            SupabaseService.fetchStores(familyProfile.id),
+            SupabaseService.fetchCategories(familyProfile.id),
+            SupabaseService.fetchRecurring(familyProfile.id),
+            SupabaseService.fetchShoppingList(familyProfile.id)
+          ]);
 
-  useEffect(() => {
-    localStorage.setItem('stores', JSON.stringify(stores));
-  }, [stores]);
+          setExpenses(exp);
+          setIncomes(inc);
+          if (sto.length > 0) setStores(sto);
+          if (cat.length > 0) setCategories(cat);
+          setRecurringExpenses(rec);
+          setShoppingList(shop);
 
-  useEffect(() => {
-    localStorage.setItem('categories', JSON.stringify(categories));
-  }, [categories]);
+        } catch (error) {
+          console.error("Failed to load data from Supabase", error);
+        } finally {
+          setIsLoadingData(false);
+        }
+      };
+      loadData();
+    }
+  }, [familyProfile?.id]);
 
-  useEffect(() => {
-    localStorage.setItem('recurringExpenses', JSON.stringify(recurringExpenses));
-  }, [recurringExpenses]);
 
-  useEffect(() => {
-    localStorage.setItem('shoppingList', JSON.stringify(shoppingList));
-  }, [shoppingList]);
-
+  // --- PERSISTENCE EFFECT (Local Backup / Profile) ---
   useEffect(() => {
     if (familyProfile) localStorage.setItem('familyProfile', JSON.stringify(familyProfile));
     else localStorage.removeItem('familyProfile');
@@ -161,7 +156,6 @@ function App() {
 
   // --- MEMOS ---
   const uniqueCategoryNames = useMemo(() => {
-    // Merge existing categories in DB with those defined in settings to ensure dropdowns work
     const fromExpenses = new Set(expenses.map(e => e.category));
     const fromSettings = new Set(categories.map(c => c.name));
     return Array.from(new Set([...fromExpenses, ...fromSettings])).sort();
@@ -181,21 +175,18 @@ function App() {
     return filteredExpenses.reduce((sum, e) => sum + e.total, 0);
   }, [filteredExpenses]);
 
-  // Logic updated to use reminderDays
   const dueRecurringExpenses = useMemo(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize today
+    today.setHours(0, 0, 0, 0);
 
     return recurringExpenses.filter(r => {
         const dueDate = new Date(r.nextDueDate);
-        dueDate.setHours(0, 0, 0, 0); // Normalize due date
+        dueDate.setHours(0, 0, 0, 0);
         
-        // Calculate the "Alert Date" (Due Date - Reminder Days)
         const reminderDays = r.reminderDays || 0;
         const alertDate = new Date(dueDate);
         alertDate.setDate(dueDate.getDate() - reminderDays);
 
-        // Show if today is on or after the alert date
         return today >= alertDate;
     }).sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime());
   }, [recurringExpenses]);
@@ -213,6 +204,8 @@ function App() {
   
   const handleSetupComplete = (profile: FamilyProfile) => {
     setFamilyProfile(profile);
+    // Create profile in Supabase immediately
+    SupabaseService.createFamilyProfile(profile);
     setIsAuthenticated(true);
   };
 
@@ -220,6 +213,9 @@ function App() {
     setIsAuthenticated(false);
     setFamilyProfile(null);
     localStorage.removeItem('familyProfile');
+    // Clear data on logout
+    setExpenses([]);
+    setIncomes([]);
     setIsMenuOpen(false);
   };
 
@@ -232,6 +228,7 @@ function App() {
   };
 
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string) => {
+    if (!familyProfile) return;
     setIsAIProcessing(true);
     const category = await categorizeExpense(product, store);
     const newExpense: Expense = {
@@ -240,11 +237,17 @@ function App() {
       date: new Date().toISOString(),
       category
     };
+    
+    // Optimistic Update
     setExpenses(prev => [newExpense, ...prev]);
     setIsAIProcessing(false);
+
+    // Cloud Sync
+    await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
   };
 
   const handleAddIncome = async (source: string, amount: number, date: string) => {
+    if (!familyProfile) return;
     const newIncome: Income = {
       id: crypto.randomUUID(),
       source,
@@ -252,26 +255,35 @@ function App() {
       date
     };
     setIncomes(prev => [newIncome, ...prev]);
+    await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
   };
 
   const handleDeleteIncome = async (id: string) => {
     setIncomes(prev => prev.filter(i => i.id !== id));
+    await SupabaseService.deleteIncomeFromSupabase(id);
   };
 
   const handleUpdateExpense = async (updated: Expense) => {
+    if (!familyProfile) return;
     setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
+    await SupabaseService.updateExpenseInSupabase(familyProfile.id, updated);
   };
 
   const handleDeleteExpense = async (id: string) => {
     if (confirm('Sei sicuro di voler eliminare questa spesa?')) {
       setExpenses(prev => prev.filter(e => e.id !== id));
+      await SupabaseService.deleteExpenseFromSupabase(id);
     }
   };
 
   const handleScanComplete = (data: ReceiptData) => {
+    if (!familyProfile) return;
+
+    // Check store
     const storeExists = stores.some(s => s.name.toLowerCase() === data.store.toLowerCase());
     if (!storeExists && data.store) handleAddStore(data.store);
 
+    // Create expenses
     const newExpenses = data.items.map(item => ({
         id: crypto.randomUUID(),
         product: item.product,
@@ -282,8 +294,12 @@ function App() {
         date: data.date || new Date().toISOString(),
         category: item.category
     }));
+
     setExpenses(prev => [...newExpenses, ...prev]);
     alert(`Aggiunti ${data.items.length} prodotti con successo!`);
+
+    // Cloud Sync Batch (Iterate for now)
+    newExpenses.forEach(exp => SupabaseService.addExpenseToSupabase(familyProfile.id, exp));
   };
 
   const handleExportCSV = () => {
@@ -302,13 +318,16 @@ function App() {
   };
 
   const handleAddStore = async (name: string) => {
+    if (!familyProfile) return;
     if (!stores.find(s => s.name.toLowerCase() === name.toLowerCase())) {
         const newStore = { id: crypto.randomUUID(), name };
         setStores(prev => [...prev, newStore]);
+        await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
     }
   };
 
   const handleAddRecurring = async (product: string, amount: number, store: string, frequency: Frequency, nextDate: string, reminderDays: number) => {
+    if (!familyProfile) return;
     const newItem: RecurringExpense = { 
         id: crypto.randomUUID(), 
         product, amount, store, frequency, 
@@ -316,15 +335,20 @@ function App() {
         reminderDays
     };
     setRecurringExpenses(prev => [...prev, newItem]);
+    await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
   };
 
   const handleDeleteRecurring = async (id: string) => {
     setRecurringExpenses(prev => prev.filter(r => r.id !== id));
+    await SupabaseService.deleteRecurringFromSupabase(id);
   };
 
   const handleProcessRecurring = async (recExpense: RecurringExpense) => {
+    if (!familyProfile) return;
+    // Add real expense
     await handleAddExpense(recExpense.product, 1, recExpense.amount, recExpense.amount, recExpense.store);
     
+    // Update next date
     const nextDate = new Date(recExpense.nextDueDate);
     if (recExpense.frequency === 'settimanale') nextDate.setDate(nextDate.getDate() + 7);
     if (recExpense.frequency === 'mensile') nextDate.setMonth(nextDate.getMonth() + 1);
@@ -332,22 +356,37 @@ function App() {
     
     const updated = { ...recExpense, nextDueDate: nextDate.toISOString().split('T')[0] };
     setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
+    await SupabaseService.updateRecurringInSupabase(familyProfile.id, updated);
   };
 
   const handleAddShoppingItem = async (product: string, store: string) => {
+    if (!familyProfile) return;
     const newItem = { id: crypto.randomUUID(), product, store, completed: false };
     setShoppingList(prev => [...prev, newItem]);
+    await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
   };
 
   const handleToggleShoppingItem = async (id: string) => {
-    setShoppingList(prev => prev.map(i => i.id === id ? { ...i, completed: !i.completed } : i));
+    const item = shoppingList.find(i => i.id === id);
+    if (!item) return;
+    
+    const updated = { ...item, completed: !item.completed };
+    setShoppingList(prev => prev.map(i => i.id === id ? updated : i));
+    await SupabaseService.updateShoppingItemInSupabase(updated);
   };
 
   const handleDeleteShoppingItem = async (id: string) => {
     setShoppingList(prev => prev.filter(i => i.id !== id));
+    await SupabaseService.deleteShoppingItemFromSupabase(id);
   };
 
-  // Sync Import Handler
+  const handleCategoriesUpdate = (newCats: CategoryDefinition[]) => {
+    if (!familyProfile) return;
+    setCategories(newCats);
+    SupabaseService.syncCategoriesToSupabase(familyProfile.id, newCats);
+  };
+
+  // Sync Import Handler (Legacy Local Sync)
   const handleImportData = (data: SyncData) => {
     setExpenses(data.expenses || []);
     setIncomes(data.incomes || []);
@@ -356,10 +395,13 @@ function App() {
     setShoppingList(data.shoppingList || []);
     if (data.categories) setCategories(data.categories);
     
-    // Ensure ID is present if missing from legacy data
     const profile = data.familyProfile;
     if (profile && !profile.id) profile.id = "LOCAL";
     setFamilyProfile(profile);
+    
+    // Trigger Save to Supabase for imported data?
+    // Not implementing full dump here to avoid accidental overwrites, 
+    // user should start fresh or use legacy tools.
   };
 
   const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string, badge?: number }> = ({ view, icon, label, badge }) => (
@@ -377,6 +419,15 @@ function App() {
   );
 
   const renderContent = () => {
+    if (isLoadingData) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Cloud className="w-12 h-12 text-emerald-500 animate-bounce mb-4" />
+          <p className="text-gray-500 font-medium">Sincronizzazione Cloud...</p>
+        </div>
+      );
+    }
+
     switch(currentView) {
       case 'dashboard': return (
           <div className="space-y-6 animate-in fade-in">
@@ -440,7 +491,7 @@ function App() {
       );
       case 'categories': return (
         <div className="animate-in fade-in">
-            <CategoryManager categories={categories} onUpdateCategories={setCategories} />
+            <CategoryManager categories={categories} onUpdateCategories={handleCategoriesUpdate} />
         </div>
       );
       default: return null;
@@ -481,6 +532,7 @@ function App() {
               <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                  <div>
                      <h2 className="font-bold text-xl text-gray-800">Menù</h2>
+                     <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Cloud Sync Attivo</span>
                  </div>
                  <button onClick={() => setIsMenuOpen(false)} className="p-3 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
@@ -500,7 +552,7 @@ function App() {
 
                  <button onClick={() => { setShowSync(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
                     <Share2 className="w-6 h-6" />
-                    <span className="text-lg">Sincronizza Dati</span>
+                    <span className="text-lg">Importa/Esporta Legacy</span>
                  </button>
 
                  <button onClick={() => { setShowGoogleSheet(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-gray-700 hover:bg-gray-100 font-medium">
