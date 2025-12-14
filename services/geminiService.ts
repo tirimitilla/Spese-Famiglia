@@ -1,9 +1,17 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
-// Initialize the client. API_KEY must be set in Vercel environment variables.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// --- CLIENT INITIALIZATION ---
+// Inizializziamo il client in modo "lazy" (solo quando serve)
+// per evitare che l'app vada in crash all'avvio se manca la chiave.
+const getAIClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("API Key di Gemini mancante. Le funzioni AI non funzioneranno.");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 // --- UTILS ---
 const cleanJsonString = (str: string) => {
@@ -13,6 +21,9 @@ const cleanJsonString = (str: string) => {
 // --- CATEGORIZATION ---
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
+    const ai = getAIClient();
+    if (!ai) return "Generale";
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Categorize the product "${product}" bought at "${store}" into exactly one of these categories: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Return ONLY the category name.`,
@@ -28,6 +39,9 @@ export const categorizeExpense = async (product: string, store: string): Promise
 export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> => {
   if (expenses.length === 0) return "Nessuna spesa da analizzare.";
   
+  const ai = getAIClient();
+  if (!ai) return "Configurazione AI mancante. Verifica la API KEY.";
+
   // Simplify data for token limit
   const summary = expenses.map(e => `${e.date.split('T')[0]}: ${e.product} (€${e.total})`).join('\n');
   
@@ -81,6 +95,9 @@ export interface ReceiptScanResult {
 
 export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ReceiptScanResult> => {
   try {
+    const ai = getAIClient();
+    if (!ai) throw new Error("API Key mancante.");
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: {
