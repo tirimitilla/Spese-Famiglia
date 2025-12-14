@@ -17,7 +17,7 @@ import { OffersFinder } from './components/OffersFinder';
 import { IncomeManager } from './components/IncomeManager';
 import { CategoryManager } from './components/CategoryManager';
 import { categorizeExpense, ReceiptData, findFlyerOffers } from './services/geminiService';
-import * as SupabaseService from '../services/supabaseService';
+import * as SupabaseService from './services/supabaseService';
 import { 
   WalletCards, 
   Download, 
@@ -398,10 +398,6 @@ function App() {
     const profile = data.familyProfile;
     if (profile && !profile.id) profile.id = "LOCAL";
     setFamilyProfile(profile);
-    
-    // Trigger Save to Supabase for imported data?
-    // Not implementing full dump here to avoid accidental overwrites, 
-    // user should start fresh or use legacy tools.
   };
 
   const MenuButton: React.FC<{ view: View, icon: React.ReactNode, label: string, badge?: number }> = ({ view, icon, label, badge }) => (

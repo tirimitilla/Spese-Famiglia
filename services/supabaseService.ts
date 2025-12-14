@@ -52,6 +52,7 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
     id: e.id,
     product: e.product,
     quantity: Number(e.quantity),
+    unit_price: Number(e.unit_price), // Mantengo compatibilità se serve, ma userò camelCase
     unitPrice: Number(e.unit_price),
     total: Number(e.total),
     store: e.store,
@@ -65,7 +66,7 @@ export const addExpenseToSupabase = async (familyId: string, expense: Expense): 
   const { error } = await supabase
     .from('expenses')
     .insert({
-      id: expense.id, // Usa l'ID generato dal frontend se vuoi, oppure lascialo generare al DB
+      id: expense.id,
       family_id: familyId,
       product: expense.product,
       quantity: expense.quantity,
@@ -98,7 +99,8 @@ export const updateExpenseInSupabase = async (familyId: string, expense: Expense
         category: expense.category,
         member_id: expense.memberId
     })
-    .eq('id', expense.id);
+    .eq('id', expense.id)
+    .eq('family_id', familyId); // Utilizzo familyId per sicurezza e per fixare l'errore TS
     
   if (error) console.error('Error updating expense:', error);
 };
@@ -155,7 +157,6 @@ export const fetchCategories = async (familyId: string): Promise<CategoryDefinit
 };
 
 export const syncCategoriesToSupabase = async (familyId: string, categories: CategoryDefinition[]): Promise<void> => {
-    // Semplificazione: Cancelliamo e reinseriamo o upsert. Upsert è meglio.
     const rows = categories.map(c => ({
         id: c.id,
         family_id: familyId,
@@ -164,8 +165,6 @@ export const syncCategoriesToSupabase = async (familyId: string, categories: Cat
         color: c.color
     }));
     
-    // Per semplicità nelle categorie personalizzate che possono essere cancellate/modificate,
-    // usiamo upsert. Per cancellazioni vere servirebbe logica in più.
     const { error } = await supabase.from('categories').upsert(rows);
     if(error) console.error(error);
 };
@@ -206,7 +205,9 @@ export const deleteRecurringFromSupabase = async (id: string): Promise<void> => 
 export const updateRecurringInSupabase = async (familyId: string, item: RecurringExpense): Promise<void> => {
     await supabase.from('recurring_expenses').update({
         next_due_date: item.nextDueDate
-    }).eq('id', item.id);
+    })
+    .eq('id', item.id)
+    .eq('family_id', familyId); // Utilizzo familyId per sicurezza e per fixare l'errore TS
 };
 
 // --- SHOPPING LIST ---
