@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Store, Member } from '../types';
 import { Plus, Loader2, ShoppingBag, Hash, DollarSign, Store as StoreIcon, Tag } from 'lucide-react';
@@ -102,7 +101,9 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ stores, existingProduc
             />
             <datalist id="product-suggestions">
               {existingProducts.map((prod, index) => (
-                <option key={`${prod}-${index}`} value={prod} />
+                <option key={`${prod}-${index}`} value={prod}>
+                    {productHistory[prod] ? `Ultimo: ${productHistory[prod]}` : ''}
+                </option>
               ))}
             </datalist>
           </div>

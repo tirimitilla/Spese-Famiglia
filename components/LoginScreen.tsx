@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
-import { FamilyProfile, Member } from '../types';
-import { UserPlus, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { FamilyProfile } from '../types';
+import { Sparkles, Loader2, AlertCircle } from 'lucide-react';
 
 interface LoginScreenProps {
   existingProfile: FamilyProfile | null;
@@ -10,19 +9,12 @@ interface LoginScreenProps {
   onResetProfile: () => void;
 }
 
-const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EC4899', '#8B5CF6', '#6366F1'];
-
 export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLogin, onSetupComplete }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Create State
   const [familyName, setFamilyName] = useState('');
-  const [members, setMembers] = useState<Member[]>([
-    { id: '1', name: 'Papà', color: COLORS[1] },
-    { id: '2', name: 'Mamma', color: COLORS[3] }
-  ]);
-  const [newMemberName, setNewMemberName] = useState('');
 
   // Se c'è un profilo locale, mostra bentornato
   if (existingProfile) {
@@ -41,27 +33,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
     );
   }
 
-  const handleAddMember = () => {
-    if (!newMemberName.trim()) return;
-    const color = COLORS[members.length % COLORS.length];
-    setMembers([...members, { id: crypto.randomUUID(), name: newMemberName.trim(), color }]);
-    setNewMemberName('');
-  };
-
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!familyName || members.length === 0) {
-      setError('Inserisci il nome della famiglia e almeno un membro.');
+    if (!familyName) {
+      setError('Inserisci il nome della famiglia.');
       return;
     }
 
     setLoading(true);
     
-    // Creazione locale
+    // Creazione locale con lista membri vuota (o di default)
     const newProfile: FamilyProfile = {
       id: crypto.randomUUID(), // ID Locale
       familyName,
-      members,
+      members: [], // Nessun membro definito inizialmente
       createdAt: Date.now()
     };
     
@@ -84,7 +69,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
 
         <form onSubmit={handleCreateSubmit} className="space-y-6">
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Cognome Famiglia</label>
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Nome Famiglia</label>
             <input
               type="text"
               value={familyName}
@@ -93,34 +78,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
               className="w-full rounded-xl border border-gray-300 p-3.5 focus:border-emerald-500 outline-none transition-all"
               required
             />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Chi ne fa parte?</label>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {members.map((m) => (
-                <span key={m.id} className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-sm flex items-center gap-1 border border-emerald-100">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: m.color }}></span>
-                    {m.name}
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newMemberName}
-                onChange={(e) => setNewMemberName(e.target.value)}
-                placeholder="Nome membro..."
-                className="flex-1 rounded-xl border border-gray-300 p-2.5 text-sm focus:border-emerald-500 outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleAddMember}
-                className="bg-emerald-100 text-emerald-700 p-2.5 rounded-xl hover:bg-emerald-200"
-              >
-                <UserPlus className="w-5 h-5" />
-              </button>
-            </div>
           </div>
 
           {error && <div className="flex items-center gap-2 text-red-500 text-sm bg-red-50 p-3 rounded-xl"><AlertCircle className="w-4 h-4" /> {error}</div>}

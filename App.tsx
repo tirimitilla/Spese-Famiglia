@@ -193,9 +193,15 @@ function App() {
 
   const productHistoryMap = useMemo(() => {
     const map: Record<string, string> = {};
-    expenses.forEach(e => {
+    // Iterate from oldest to newest (assuming expenses are sorted DESC by date, i.e., newest first)
+    // Actually expenses from fetchExpenses are sorted date DESC.
+    // So expenses[0] is newest.
+    // If we use forEach (0 to length), we set newest first, then overwrite with older.
+    // We want the newest store. So we should iterate in reverse order (oldest -> newest).
+    for (let i = expenses.length - 1; i >= 0; i--) {
+        const e = expenses[i];
         map[e.product] = e.store;
-    });
+    }
     return map;
   }, [expenses]);
 

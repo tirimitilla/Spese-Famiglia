@@ -3,6 +3,9 @@ export interface Member {
   id: string;
   name: string;
   color: string;
+  // Campi opzionali per integrazione futura con tabella 'family_members' e Auth
+  userId?: string; 
+  isAdmin?: boolean;
 }
 
 export interface FamilyProfile {

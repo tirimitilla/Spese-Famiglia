@@ -10,7 +10,12 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
     .single();
 
   if (error) {
-    console.error('Error fetching family:', error);
+    // Codice PGRST116 significa "nessuna riga trovata", che è un comportamento atteso
+    // quando sincronizziamo un profilo locale per la prima volta.
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error('Error fetching family:', error.message || error);
     return null;
   }
 
@@ -52,7 +57,6 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
     id: e.id,
     product: e.product,
     quantity: Number(e.quantity),
-    unit_price: Number(e.unit_price), // Mantengo compatibilità se serve, ma userò camelCase
     unitPrice: Number(e.unit_price),
     total: Number(e.total),
     store: e.store,
@@ -100,7 +104,7 @@ export const updateExpenseInSupabase = async (familyId: string, expense: Expense
         member_id: expense.memberId
     })
     .eq('id', expense.id)
-    .eq('family_id', familyId); // Utilizzo familyId per sicurezza e per fixare l'errore TS
+    .eq('family_id', familyId); // Utilizzo familyId obbligatorio per TS e sicurezza
     
   if (error) console.error('Error updating expense:', error);
 };
@@ -207,7 +211,7 @@ export const updateRecurringInSupabase = async (familyId: string, item: Recurrin
         next_due_date: item.nextDueDate
     })
     .eq('id', item.id)
-    .eq('family_id', familyId); // Utilizzo familyId per sicurezza e per fixare l'errore TS
+    .eq('family_id', familyId); // Utilizzo familyId obbligatorio per TS
 };
 
 // --- SHOPPING LIST ---
