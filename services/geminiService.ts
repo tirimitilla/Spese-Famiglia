@@ -1,17 +1,10 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
 // --- CLIENT INITIALIZATION ---
-// Inizializziamo il client in modo "lazy" (solo quando serve)
-// per evitare che l'app vada in crash all'avvio se manca la chiave.
-const getAIClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.warn("API Key di Gemini mancante. Le funzioni AI non funzioneranno.");
-    return null;
-  }
-  return new GoogleGenAI({ apiKey });
-};
+// Initialize the Gemini client using the environment variable directly as per coding guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- UTILS ---
 const cleanJsonString = (str: string) => {
@@ -21,11 +14,9 @@ const cleanJsonString = (str: string) => {
 // --- CATEGORIZATION ---
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
-    const ai = getAIClient();
-    if (!ai) return "Generale";
-
+    // Categorization is a basic text task.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Categorize the product "${product}" bought at "${store}" into exactly one of these categories: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Return ONLY the category name.`,
     });
     return response.text?.trim() || "Generale";
@@ -39,15 +30,13 @@ export const categorizeExpense = async (product: string, store: string): Promise
 export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> => {
   if (expenses.length === 0) return "Nessuna spesa da analizzare.";
   
-  const ai = getAIClient();
-  if (!ai) return "Configurazione AI mancante. Verifica la API KEY.";
-
   // Simplify data for token limit
   const summary = expenses.map(e => `${e.date.split('T')[0]}: ${e.product} (€${e.total})`).join('\n');
   
   try {
+    // Spending analysis involves reasoning, so we use gemini-3-pro-preview.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: `Analizza queste spese familiari recenti e fornisci 3 consigli brevi e pratici in italiano per risparmiare. Sii diretto e amichevole.\n\n${summary}`,
     });
     return response.text || "Analisi non disponibile al momento.";
@@ -95,11 +84,9 @@ export interface ReceiptScanResult {
 
 export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ReceiptScanResult> => {
   try {
-    const ai = getAIClient();
-    if (!ai) throw new Error("API Key mancante.");
-
+    // Receipt parsing from image is a complex multimodal task, so we use gemini-3-pro-preview.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: {
         parts: [
           {

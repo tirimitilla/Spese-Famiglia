@@ -1,4 +1,5 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+
+import React, { ErrorInfo, ReactNode, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
@@ -13,9 +14,15 @@ interface ErrorBoundaryState {
 }
 
 // Simple Error Boundary to catch crashes
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+// Fix: Added explicit property declarations for state and props as the compiler was failing to resolve them from the base class.
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // Added explicit props declaration to resolve property access errors in the render method.
+  public props: ErrorBoundaryProps;
+  public state: ErrorBoundaryState = { hasError: false, error: null };
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    this.props = props;
     this.state = { hasError: false, error: null };
   }
 
