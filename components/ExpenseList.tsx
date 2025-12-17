@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Expense, Store, CategoryDefinition } from '../types';
-import { Trash2, Calendar, ChevronDown, ChevronUp, Package, Pencil, Store as StoreIcon, Tag } from 'lucide-react';
+import { Trash2, Calendar, ChevronDown, ChevronUp, Pencil, Store as StoreIcon, Tag } from 'lucide-react';
 import { EditExpenseModal } from './EditExpenseModal';
 import { CategoryIcon } from './CategoryIcons';
 

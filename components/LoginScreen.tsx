@@ -84,20 +84,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
             <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
                 <button 
                     onClick={() => setMode('create')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-50'}`}
                 >
                     Crea Nuova
                 </button>
                 <button 
                     onClick={() => setMode('join')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-50'}`}
                 >
                     Unisciti
                 </button>
             </div>
 
             {error && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs flex items-center gap-2 mb-4 animate-in shake">
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs flex items-center gap-2 mb-4">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
                     {error}
                 </div>
