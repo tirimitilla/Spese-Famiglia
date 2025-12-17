@@ -84,13 +84,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
             <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
                 <button 
                     onClick={() => setMode('create')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-50'}`}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}
                 >
                     Crea Nuova
                 </button>
                 <button 
                     onClick={() => setMode('join')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-50'}`}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}
                 >
                     Unisciti
                 </button>
