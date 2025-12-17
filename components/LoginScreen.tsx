@@ -6,7 +6,7 @@ import { supabase } from '../src/supabaseClient';
 
 interface LoginScreenProps {
   onSetupComplete: (profile: FamilyProfile) => void;
-  isSupabaseAuth?: boolean; // Se siamo autenticati con Supabase ma serve definire la famiglia
+  isSupabaseAuth?: boolean;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSupabaseAuth }) => {
@@ -36,7 +36,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
       createdAt: Date.now()
     };
     
-    // Simulo un caricamento breve per feedback UI
     setTimeout(() => {
         onSetupComplete(newProfile);
         setLoading(false);
@@ -57,13 +56,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Utente non autenticato");
 
-      // 1. Verifica che la famiglia esista
       const profile = await getFamilyProfile(familyIdToJoin);
       if (!profile) {
         throw new Error("Nessuna famiglia trovata con questo codice.");
       }
 
-      // 2. Unisciti
       await joinFamily(user.id, familyIdToJoin, user.user_metadata.full_name || 'Nuovo Membro', false);
       
       onSetupComplete(profile);
@@ -150,8 +147,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-gray-100 relative">
-        <div className="text-center mb-8 mt-2 space-y-2">
+      <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-gray-100 relative text-center">
+        <div className="mb-8 mt-2 space-y-2">
           <div className="bg-gradient-to-tr from-emerald-400 to-teal-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto shadow-lg transform -rotate-3 mb-4">
                 <Sparkles className="w-8 h-8 text-white" />
           </div>
@@ -172,13 +169,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
                     </>
                 )}
             </button>
-            
-            <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-                <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-gray-400">Oppure</span></div>
-            </div>
-
-            <p className="text-center text-xs text-gray-400">
+            <p className="text-center text-xs text-gray-400 px-4 mt-6">
                 L'accesso con Google permette di sincronizzare i dati su tutti i tuoi dispositivi in tempo reale.
             </p>
         </div>

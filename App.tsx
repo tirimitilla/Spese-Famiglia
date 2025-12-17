@@ -1,43 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, RecurringExpense, Frequency, FamilyProfile, SyncData, ShoppingItem, OfferPreferences, Income, CategoryDefinition } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, RecurringExpense, FamilyProfile, ShoppingItem, OfferPreferences, Income, CategoryDefinition } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
-import { RecurringManager } from './components/RecurringManager';
-import { DueExpensesAlert } from './components/DueExpensesAlert';
 import { Analytics } from './components/Analytics';
-import { AIInsight } from './components/AIInsight';
-import { ExpenseFilters, FilterState } from './components/ExpenseFilters';
 import { ReceiptScanner } from './components/ReceiptScanner';
 import { LoginScreen } from './components/LoginScreen';
-import { DataSync } from './components/DataSync';
-import { GoogleSheetSync } from './components/GoogleSheetSync';
-import { ShoppingListManager } from './components/ShoppingListManager';
-import { OffersFinder } from './components/OffersFinder';
 import { IncomeManager } from './components/IncomeManager';
 import { CategoryManager } from './components/CategoryManager';
 import { FamilyManager } from './components/FamilyManager';
-import { categorizeExpense, ReceiptData, findFlyerOffers } from './services/geminiService';
+import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
   WalletCards, 
-  Download, 
-  Share2, 
   LogOut, 
-  Table, 
   Menu, 
   X,
   Home,
   History,
   ShoppingCart,
-  Percent,
-  Repeat,
   BarChart3,
   ChevronRight,
   Coins,
   Tag,
-  Github,
   Cloud,
   User,
   Loader2,
@@ -47,39 +33,23 @@ import {
 type View = 'dashboard' | 'history' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'budget' | 'categories' | 'profile';
 
 function App() {
-  // --- AUTH STATE ---
   const [session, setSession] = useState<any>(null);
   const [familyProfile, setFamilyProfile] = useState<FamilyProfile | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // App Data State
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   const [categories, setCategories] = useState<CategoryDefinition[]>(DEFAULT_CATEGORIES);
-  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
-  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
-
-  // UI State
-  const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [showSync, setShowSync] = useState(false);
-  const [showGoogleSheet, setShowGoogleSheet] = useState(false);
-  const [newOffersCount, setNewOffersCount] = useState(0);
   
-  const [filters, setFilters] = useState<FilterState>({
-    store: '', category: '', startDate: '', endDate: ''
-  });
+  // Non utilizziamo filtri complessi in questa versione per semplicità e velocità
+  const filters = { store: '', category: '', startDate: '', endDate: '' };
 
-  const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>(() => {
-    const saved = localStorage.getItem('offerPrefs');
-    return saved ? JSON.parse(saved) : { city: '', selectedStores: [], lastCheckDate: 0, hasEnabledNotifications: false };
-  });
-
-  // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -114,26 +84,21 @@ function App() {
     setIsLoadingData(false);
   };
 
-  // --- DATA LOADING EFFECT ---
   useEffect(() => {
     if (isAuthenticated && familyProfile?.id) {
       const loadAllData = async () => {
         setIsLoadingData(true);
         try {
-          const [exp, inc, sto, cat, rec, shop] = await Promise.all([
+          const [exp, inc, sto, cat] = await Promise.all([
             SupabaseService.fetchExpenses(familyProfile.id),
             SupabaseService.fetchIncomes(familyProfile.id),
             SupabaseService.fetchStores(familyProfile.id),
-            SupabaseService.fetchCategories(familyProfile.id),
-            SupabaseService.fetchRecurring(familyProfile.id),
-            SupabaseService.fetchShoppingList(familyProfile.id)
+            SupabaseService.fetchCategories(familyProfile.id)
           ]);
           setExpenses(exp);
           setIncomes(inc);
           if (sto.length > 0) setStores(sto);
           if (cat.length > 0) setCategories(cat);
-          setRecurringExpenses(rec);
-          setShoppingList(shop);
         } catch (e) { console.error(e); }
         setIsLoadingData(false);
       };
@@ -141,19 +106,11 @@ function App() {
     }
   }, [isAuthenticated, familyProfile?.id]);
 
-  // --- HANDLERS ---
   const handleSetupComplete = async (profile: FamilyProfile) => {
     if (!session?.user) return;
-    
-    // Verifica se la famiglia esiste già sul DB (caso "Join") o se va creata
     const existing = await SupabaseService.getFamilyProfile(profile.id);
-    if (!existing) {
-        await SupabaseService.createFamilyProfile(profile);
-    }
-    
-    // Associa utente loggato
+    if (!existing) await SupabaseService.createFamilyProfile(profile);
     await SupabaseService.joinFamily(session.user.id, profile.id, session.user.user_metadata.full_name || 'Membro', !existing);
-    
     setFamilyProfile(profile);
     setIsAuthenticated(true);
   };
@@ -217,7 +174,6 @@ function App() {
     SupabaseService.syncCategoriesToSupabase(familyProfile.id, newCats);
   };
 
-  // --- MEMOS & FILTERS ---
   const filteredExpenses = useMemo(() => {
     return expenses.filter(expense => {
       const matchStore = filters.store ? expense.store === filters.store : true;
@@ -228,11 +184,10 @@ function App() {
     }).sort((a, b) => b.date.localeCompare(a.date));
   }, [expenses, filters]);
 
-  const MenuButton = ({ view, icon, label, badge }: { view: View, icon: any, label: string, badge?: number }) => (
+  const MenuButton = ({ view, icon, label }: { view: View, icon: any, label: string }) => (
     <button onClick={() => { setCurrentView(view); setIsMenuOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100'}`}>
       {React.cloneElement(icon, { className: 'w-6 h-6' })}
       <span className="text-lg">{label}</span>
-      {badge ? <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{badge}</span> : null}
       {currentView === view && <ChevronRight className="w-5 h-5 ml-auto text-emerald-600" />}
     </button>
   );
@@ -248,15 +203,14 @@ function App() {
           <div className="flex items-center gap-3">
              <button onClick={() => setIsMenuOpen(true)} className="p-3 -ml-2 text-gray-700 hover:bg-gray-100 rounded-xl relative">
                 <Menu className="w-7 h-7" />
-                {newOffersCount > 0 && <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}
              </button>
-             <div className="flex items-center gap-3" onClick={() => setCurrentView('dashboard')}>
+             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
                 <div className="bg-emerald-100 p-2 rounded-xl"><WalletCards className="w-6 h-6 text-emerald-600" /></div>
                 <h1 className="font-bold text-lg text-gray-800 truncate">Spese {familyProfile?.familyName}</h1>
              </div>
           </div>
           <div className="flex items-center gap-2">
-             <button onClick={() => setCurrentView('profile')} className="bg-gray-100 p-1.5 rounded-full hover:bg-emerald-50 transition-colors" title="Il mio profilo">
+             <button onClick={() => setCurrentView('profile')} className="bg-gray-100 p-1.5 rounded-full hover:bg-emerald-50" title="Il mio profilo">
                 {session.user.user_metadata.avatar_url ? (
                     <img src={session.user.user_metadata.avatar_url} className="w-8 h-8 rounded-full" alt="User" />
                 ) : <User className="w-5 h-5 text-gray-500 m-1" />}
@@ -279,7 +233,6 @@ function App() {
               <div className="flex-1 overflow-y-auto p-4 space-y-2">
                  <MenuButton view="dashboard" icon={<Home />} label="Home & Scansione" />
                  <MenuButton view="budget" icon={<Coins />} label="Bilancio & Guadagni" />
-                 <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" />
                  <MenuButton view="history" icon={<History />} label="Storico Transazioni" />
                  <MenuButton view="analytics" icon={<BarChart3 />} label="Analisi & Grafici" />
                  <div className="my-2 border-t border-gray-100"></div>
@@ -310,7 +263,7 @@ function App() {
                     <StoreManager onAddStore={handleAddStore} />
                 </div>
             )}
-            {currentView === 'history' && <ExpenseList expenses={filteredExpenses} stores={stores} members={[]} onDelete={handleDeleteExpense} onEdit={handleUpdateExpense} categories={categories} />}
+            {currentView === 'history' && <ExpenseList expenses={filteredExpenses} stores={stores} categories={categories} onDelete={handleDeleteExpense} onEdit={handleUpdateExpense} />}
             {currentView === 'budget' && <IncomeManager incomes={incomes} expenses={expenses} onAddIncome={handleAddIncome} onDeleteIncome={handleDeleteIncome} />}
             {currentView === 'categories' && <CategoryManager categories={categories} onUpdateCategories={handleCategoriesUpdate} />}
             {currentView === 'profile' && familyProfile && <FamilyManager familyProfile={familyProfile} />}
