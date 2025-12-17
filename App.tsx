@@ -238,8 +238,8 @@ function App() {
   );
 
   if (isLoadingAuth) return <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50"><Loader2 className="w-10 h-10 text-emerald-600 animate-spin" /><p className="mt-4 text-gray-500 font-medium">Caricamento sessione...</p></div>;
-  if (!session) return <LoginScreen existingProfile={null} onLogin={() => {}} onSetupComplete={handleSetupComplete} onResetProfile={() => {}} />;
-  if (!isAuthenticated) return <LoginScreen existingProfile={null} onLogin={() => {}} onSetupComplete={handleSetupComplete} onResetProfile={() => {}} isSupabaseAuth={true} />;
+  if (!session) return <LoginScreen onSetupComplete={handleSetupComplete} />;
+  if (!isAuthenticated) return <LoginScreen onSetupComplete={handleSetupComplete} isSupabaseAuth={true} />;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-24 safe-area-top">

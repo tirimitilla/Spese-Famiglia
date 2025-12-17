@@ -1,18 +1,15 @@
 import React, { useState } from 'react';
 import { FamilyProfile } from '../types';
-import { Sparkles, Loader2, AlertCircle, LogIn, UserPlus } from 'lucide-react';
+import { Sparkles, Loader2, AlertCircle, UserPlus } from 'lucide-react';
 import { signInWithGoogle, joinFamily, getFamilyProfile } from '../services/supabaseService';
 import { supabase } from '../src/supabaseClient';
 
 interface LoginScreenProps {
-  existingProfile: FamilyProfile | null;
-  onLogin: () => void;
   onSetupComplete: (profile: FamilyProfile) => void;
-  onResetProfile: () => void;
   isSupabaseAuth?: boolean; // Se siamo autenticati con Supabase ma serve definire la famiglia
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLogin, onSetupComplete, isSupabaseAuth }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSupabaseAuth }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [familyName, setFamilyName] = useState('');
@@ -39,6 +36,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ existingProfile, onLog
       createdAt: Date.now()
     };
     
+    // Simulo un caricamento breve per feedback UI
     setTimeout(() => {
         onSetupComplete(newProfile);
         setLoading(false);
