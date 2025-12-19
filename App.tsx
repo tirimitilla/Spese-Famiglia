@@ -11,7 +11,7 @@ import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, BarChart3, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, AlertTriangle
+  WalletCards, LogOut, Menu, X, Home, History, BarChart3, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, AlertTriangle, Database
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'budget' | 'categories' | 'profile';
@@ -68,10 +68,11 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      if (e.message?.includes('404')) {
-        setError("Tabella 'family_members' non trovata nel database. Assicurati di aver eseguito lo script SQL su Supabase.");
+      const msg = e.message || "";
+      if (msg.includes('schema cache') || msg.includes('family_members')) {
+        setError("Supabase non trova le tabelle. Vai nell'SQL Editor di Supabase ed esegui lo script per creare le tabelle (family_members, families, etc.).");
       } else {
-        setError("Errore di connessione al database. Riprova tra poco.");
+        setError("Errore di connessione al database. Verifica la configurazione di Supabase.");
       }
     } finally {
       setIsLoadingAuth(false);
@@ -115,7 +116,7 @@ function App() {
       setIsAuthenticated(true);
     } catch (e: any) {
       console.error("Errore creazione famiglia:", e);
-      alert("Errore: " + (e.message || "Impossibile creare la famiglia. Verifica le tabelle SQL."));
+      alert("Errore database: Assicurati di aver creato le tabelle SQL su Supabase.");
     } finally {
       setIsLoadingData(false);
     }
@@ -191,17 +192,17 @@ function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-red-100 text-center">
-          <div className="bg-red-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-8 h-8 text-red-600" />
+          <div className="bg-amber-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Database className="w-8 h-8 text-amber-600" />
           </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Qualcosa non va</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Configurazione Richiesta</h2>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed">{error}</p>
           <div className="space-y-3">
             <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md">
               Ricarica App
             </button>
             <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl">
-              Torna al Login
+              Esci
             </button>
           </div>
         </div>
