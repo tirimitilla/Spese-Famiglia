@@ -11,7 +11,7 @@ import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, BarChart3, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users
+  WalletCards, LogOut, Menu, X, Home, History, BarChart3, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, AlertTriangle
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'budget' | 'categories' | 'profile';
@@ -52,6 +52,7 @@ function App() {
 
   const checkUserFamily = async (userId: string) => {
     setIsLoadingData(true);
+    setError(null);
     try {
       const membership = await SupabaseService.getFamilyForUser(userId);
       if (membership) {
@@ -59,11 +60,19 @@ function App() {
         if (profile) {
           setFamilyProfile(profile);
           setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
         }
+      } else {
+        setIsAuthenticated(false);
       }
-    } catch (e) {
-      console.error("Errore database:", e);
-      setError("Il database non è pronto. Assicurati di aver creato le tabelle su Supabase.");
+    } catch (e: any) {
+      console.error("Errore inizializzazione:", e);
+      if (e.message?.includes('404')) {
+        setError("Tabella 'family_members' non trovata nel database. Assicurati di aver eseguito lo script SQL su Supabase.");
+      } else {
+        setError("Errore di connessione al database. Riprova tra poco.");
+      }
     } finally {
       setIsLoadingAuth(false);
       setIsLoadingData(false);
@@ -81,11 +90,13 @@ function App() {
             SupabaseService.fetchStores(familyProfile.id),
             SupabaseService.fetchCategories(familyProfile.id)
           ]);
-          setExpenses(exp);
-          setIncomes(inc);
-          if (sto.length > 0) setStores(sto);
-          if (cat.length > 0) setCategories(cat);
-        } catch (e) { console.error("Errore caricamento dati:", e); }
+          setExpenses(exp || []);
+          setIncomes(inc || []);
+          if (sto && sto.length > 0) setStores(sto);
+          if (cat && cat.length > 0) setCategories(cat);
+        } catch (e) { 
+          console.error("Errore caricamento dati:", e);
+        }
         setIsLoadingData(false);
       };
       loadAllData();
@@ -96,13 +107,15 @@ function App() {
     if (!session?.user) return;
     try {
       setIsLoadingData(true);
+      setError(null);
       const existing = await SupabaseService.getFamilyProfile(profile.id);
       if (!existing) await SupabaseService.createFamilyProfile(profile);
       await SupabaseService.joinFamily(session.user.id, profile.id, session.user.user_metadata.full_name || 'Membro', !existing);
       setFamilyProfile(profile);
       setIsAuthenticated(true);
-    } catch (e) {
-      alert("Errore durante la creazione della famiglia. Verifica di aver creato le tabelle SQL su Supabase.");
+    } catch (e: any) {
+      console.error("Errore creazione famiglia:", e);
+      alert("Errore: " + (e.message || "Impossibile creare la famiglia. Verifica le tabelle SQL."));
     } finally {
       setIsLoadingData(false);
     }
@@ -115,38 +128,92 @@ function App() {
     setExpenses([]);
     setIncomes([]);
     setIsMenuOpen(false);
+    setError(null);
   };
 
   const handleAddExpense = async (product: string, quantity: number, unitPrice: number, total: number, store: string) => {
     if (!familyProfile) return;
     setIsAIProcessing(true);
-    const category = await categorizeExpense(product, store);
-    const newExpense: Expense = { id: crypto.randomUUID(), product, quantity, unitPrice, total, store, date: new Date().toISOString(), category, memberId: session?.user?.id };
-    setExpenses(prev => [newExpense, ...prev]);
-    setIsAIProcessing(false);
-    await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
+    try {
+      const category = await categorizeExpense(product, store);
+      const newExpense: Expense = { 
+        id: crypto.randomUUID(), 
+        product, 
+        quantity, 
+        unitPrice, 
+        total, 
+        store, 
+        date: new Date().toISOString(), 
+        category, 
+        memberId: session?.user?.id 
+      };
+      setExpenses(prev => [newExpense, ...prev]);
+      await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
+    } catch (e) {
+      console.error("Errore aggiunta spesa:", e);
+    } finally {
+      setIsAIProcessing(false);
+    }
   };
 
-  // Fix: Added handleAddIncome function to resolve the 'Cannot find name' error and handle adding new income records.
   const handleAddIncome = async (source: string, amount: number, date: string) => {
     if (!familyProfile) return;
-    const newIncome: Income = { id: crypto.randomUUID(), source, amount, date };
-    setIncomes(prev => [newIncome, ...prev]);
-    await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
+    try {
+      const newIncome: Income = { id: crypto.randomUUID(), source, amount, date };
+      setIncomes(prev => [newIncome, ...prev]);
+      await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
+    } catch (e) {
+      console.error("Errore aggiunta entrata:", e);
+    }
   };
 
   const MenuButton = ({ view, icon, label }: { view: View, icon: any, label: string }) => (
-    <button onClick={() => { setCurrentView(view); setIsMenuOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100'}`}>
+    <button 
+      onClick={() => { setCurrentView(view); setIsMenuOpen(false); }} 
+      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100'}`}
+    >
       {React.cloneElement(icon, { className: 'w-6 h-6' })}
       <span className="text-lg">{label}</span>
       {currentView === view && <ChevronRight className="w-5 h-5 ml-auto text-emerald-600" />}
     </button>
   );
 
-  if (isLoadingAuth) return <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50"><Loader2 className="w-10 h-10 text-emerald-600 animate-spin" /><p className="mt-4 text-gray-500 font-medium">Caricamento sessione...</p></div>;
-  if (error) return <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center"><div className="bg-red-50 p-6 rounded-2xl border border-red-200"><h2 className="text-red-700 font-bold text-xl mb-2">Errore Configurazione</h2><p className="text-red-600 mb-4">{error}</p><button onClick={() => window.location.reload()} className="bg-red-600 text-white px-6 py-2 rounded-xl">Riprova</button></div></div>;
+  if (isLoadingAuth) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+        <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+        <p className="mt-4 text-gray-500 font-medium">Verifica sessione in corso...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-red-100 text-center">
+          <div className="bg-red-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-8 h-8 text-red-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Qualcosa non va</h2>
+          <p className="text-gray-600 text-sm mb-6 leading-relaxed">{error}</p>
+          <div className="space-y-3">
+            <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md">
+              Ricarica App
+            </button>
+            <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl">
+              Torna al Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) return <LoginScreen onSetupComplete={handleSetupComplete} />;
-  if (!isAuthenticated) return <LoginScreen onSetupComplete={handleSetupComplete} isSupabaseAuth={true} />;
+  
+  if (!isAuthenticated && !isLoadingData) {
+    return <LoginScreen onSetupComplete={handleSetupComplete} isSupabaseAuth={true} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-24 safe-area-top">
@@ -158,11 +225,17 @@ function App() {
              </button>
              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
                 <div className="bg-emerald-100 p-2 rounded-xl"><WalletCards className="w-6 h-6 text-emerald-600" /></div>
-                <h1 className="font-bold text-lg text-gray-800 truncate">Spese {familyProfile?.familyName}</h1>
+                <h1 className="font-bold text-lg text-gray-800 truncate">
+                  {familyProfile?.familyName ? `Spese ${familyProfile.familyName}` : 'Spese Famiglia'}
+                </h1>
              </div>
           </div>
           <button onClick={() => setCurrentView('profile')} className="bg-gray-100 p-1.5 rounded-full hover:bg-emerald-50">
-             {session.user.user_metadata.avatar_url ? <img src={session.user.user_metadata.avatar_url} className="w-8 h-8 rounded-full" alt="User" /> : <User className="w-5 h-5 text-gray-500 m-1" />}
+             {session?.user?.user_metadata?.avatar_url ? (
+               <img src={session.user.user_metadata.avatar_url} className="w-8 h-8 rounded-full" alt="User" />
+             ) : (
+               <User className="w-5 h-5 text-gray-500 m-1" />
+             )}
           </button>
         </div>
       </header>
@@ -172,7 +245,10 @@ function App() {
            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)}></div>
            <div className="relative w-[85%] max-w-xs bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-200">
               <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                 <div><h2 className="font-bold text-xl text-gray-800">Menù</h2><span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Cloud Sync Attivo</span></div>
+                 <div>
+                   <h2 className="font-bold text-xl text-gray-800">Menù</h2>
+                   <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Cloud Sync Attivo</span>
+                 </div>
                  <button onClick={() => setIsMenuOpen(false)} className="p-3 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -182,7 +258,9 @@ function App() {
                  <div className="my-2 border-t border-gray-100"></div>
                  <MenuButton view="profile" icon={<Users />} label="Profilo Famiglia" />
                  <MenuButton view="categories" icon={<Tag />} label="Gestisci Categorie" />
-                 <button onClick={handleLogout} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold"><LogOut className="w-6 h-6" /> Esci</button>
+                 <button onClick={handleLogout} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold">
+                   <LogOut className="w-6 h-6" /> Esci
+                 </button>
               </div>
            </div>
         </div>
@@ -190,19 +268,51 @@ function App() {
 
       <main className="max-w-2xl mx-auto px-4 py-6">
         {isLoadingData ? (
-          <div className="flex flex-col items-center justify-center py-20"><Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" /><p className="text-gray-500 font-medium">Sincronizzazione Cloud...</p></div>
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
+            <p className="text-gray-500 font-medium">Sincronizzazione Cloud...</p>
+          </div>
         ) : (
           <>
             {currentView === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
-                    <ExpenseForm stores={stores} members={[]} existingProducts={[]} productHistory={{}} onAddExpense={handleAddExpense} isAnalyzing={isAIProcessing} />
+                    <ExpenseForm 
+                      stores={stores} 
+                      members={[]} 
+                      existingProducts={[]} 
+                      productHistory={{}} 
+                      onAddExpense={handleAddExpense} 
+                      isAnalyzing={isAIProcessing} 
+                    />
                     <StoreManager onAddStore={(name) => SupabaseService.addStoreToSupabase(familyProfile!.id, {id: crypto.randomUUID(), name})} />
                 </div>
             )}
-            {currentView === 'history' && <ExpenseList expenses={expenses} stores={stores} categories={categories} onDelete={(id) => SupabaseService.deleteExpenseFromSupabase(id).then(() => setExpenses(prev => prev.filter(e => e.id !== id)))} onEdit={() => {}} />}
-            {currentView === 'budget' && <IncomeManager incomes={incomes} expenses={expenses} onAddIncome={handleAddIncome} onDeleteIncome={(id) => SupabaseService.deleteIncomeFromSupabase(id).then(() => setIncomes(prev => prev.filter(i => i.id !== id)))} />}
-            {currentView === 'categories' && <CategoryManager categories={categories} onUpdateCategories={(cats) => {setCategories(cats); SupabaseService.syncCategoriesToSupabase(familyProfile!.id, cats);}} />}
-            {currentView === 'profile' && familyProfile && <FamilyManager familyProfile={familyProfile} />}
+            {currentView === 'history' && (
+              <ExpenseList 
+                expenses={expenses} 
+                stores={stores} 
+                categories={categories} 
+                onDelete={(id) => SupabaseService.deleteExpenseFromSupabase(id).then(() => setExpenses(prev => prev.filter(e => e.id !== id)))} 
+                onEdit={() => {}} 
+              />
+            )}
+            {currentView === 'budget' && (
+              <IncomeManager 
+                incomes={incomes} 
+                expenses={expenses} 
+                onAddIncome={handleAddIncome} 
+                onDeleteIncome={(id) => SupabaseService.deleteIncomeFromSupabase(id).then(() => setIncomes(prev => prev.filter(i => i.id !== id)))} 
+              />
+            )}
+            {currentView === 'categories' && (
+              <CategoryManager 
+                categories={categories} 
+                onUpdateCategories={(cats) => {setCategories(cats); SupabaseService.syncCategoriesToSupabase(familyProfile!.id, cats);}} 
+              />
+            )}
+            {currentView === 'profile' && familyProfile && (
+              <FamilyManager familyProfile={familyProfile} />
+            )}
           </>
         )}
       </main>
