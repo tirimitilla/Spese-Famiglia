@@ -2,11 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
 // --- CLIENT INITIALIZATION ---
-// Usiamo una funzione per ottenere l'istanza AI o la inizializziamo in modo sicuro
-// per evitare il crash "An API Key must be set" all'avvio del bundle.
-// Fix: Updated initialization to strictly follow @google/genai guidelines, using process.env.API_KEY directly.
 const getAI = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("Gemini API Key non configurata. Le funzioni IA saranno disabilitate.");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 // --- UTILS ---
@@ -18,6 +20,8 @@ const cleanJsonString = (str: string) => {
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
     const ai = getAI();
+    if (!ai) return "Generale";
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Categorize the product "${product}" bought at "${store}" into exactly one of these categories: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Return ONLY the category name.`,
@@ -37,6 +41,8 @@ export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> 
   
   try {
     const ai = getAI();
+    if (!ai) return "Servizio IA non disponibile (chiave mancante).";
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: `Analizza queste spese familiari recenti e fornisci 3 consigli brevi e pratici in italiano per risparmiare. Sii diretto e amichevole.\n\n${summary}`,
@@ -83,6 +89,8 @@ export interface ReceiptScanResult {
 export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ReceiptScanResult> => {
   try {
     const ai = getAI();
+    if (!ai) throw new Error("API Key mancante su Vercel.");
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
@@ -113,14 +121,10 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
     });
 
     const text = response.text;
-    if (!text) throw new Error("Empty response from AI");
+    if (!text) throw new Error("Risposta vuota dall'IA");
 
     const cleanJson = cleanJsonString(text);
     const data: ReceiptData = JSON.parse(cleanJson);
-
-    if (!data.items || !Array.isArray(data.items)) {
-       throw new Error("Invalid JSON structure received");
-    }
 
     return { success: true, data };
 
@@ -128,7 +132,7 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
     console.error("Receipt parsing error:", error);
     return { 
       success: false, 
-      error: "Non sono riuscito a leggere lo scontrino. Assicurati che la foto sia ben illuminata e a fuoco." 
+      error: error instanceof Error ? error.message : "Errore durante la lettura dello scontrino." 
     };
   }
 };
