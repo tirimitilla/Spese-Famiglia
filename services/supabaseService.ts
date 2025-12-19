@@ -6,7 +6,7 @@ export const signInWithGoogle = async () => {
   // window.location.origin restituisce es: https://spese-famiglia-rofp.vercel.app
   let redirectUrl = window.location.origin;
   
-  // Assicuriamoci che non ci siano sbarre finali che a volte rompono la corrispondenza esatta
+  // Rimuoviamo slash finali per evitare discrepanze con la config di Supabase
   if (redirectUrl.endsWith('/')) {
     redirectUrl = redirectUrl.slice(0, -1);
   }
@@ -30,7 +30,7 @@ export const signInWithGoogle = async () => {
   
   if (error) {
     console.error('Errore Login Google:', error.message);
-    alert('ERRORE DI CONFIGURAZIONE:\n\nDevi aggiungere questo URL esatto su Supabase (Site URL):\n' + redirectUrl + '\n\nControlla bene che non ci siano spazi o sbarre finali extra.');
+    alert('ERRORE DI CONFIGURAZIONE:\n\nDevi aggiungere questo URL esatto su Supabase (Site URL):\n' + redirectUrl + '\n\nControlla bene che non ci siano spazi extra.');
   }
 };
 
