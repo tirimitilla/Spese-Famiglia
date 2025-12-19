@@ -1,14 +1,19 @@
-
 import { supabase } from '../src/supabaseClient';
 import { Expense, Income, Store, RecurringExpense, ShoppingItem, FamilyProfile, CategoryDefinition, Member } from '../types';
 
 // --- AUTH ---
 export const signInWithGoogle = async () => {
-  const redirectUrl = window.location.origin;
+  // window.location.origin restituisce es: https://spese-famiglia-rofp.vercel.app
+  let redirectUrl = window.location.origin;
+  
+  // Assicuriamoci che non ci siano sbarre finali che a volte rompono la corrispondenza esatta
+  if (redirectUrl.endsWith('/')) {
+    redirectUrl = redirectUrl.slice(0, -1);
+  }
   
   // Se l'URL contiene localhost, avvertiamo l'utente che sul cellulare non funzionerà
   if (redirectUrl.includes('localhost') && /iPhone|Android|iPad/i.test(navigator.userAgent)) {
-    alert("ATTENZIONE:\nStai usando 'localhost' sul cellulare. Questo indirizzo funziona solo sul computer.\n\nPer usare l'app sul telefono, devi caricarla su internet (es. Vercel) e usare quel link.");
+    alert("ATTENZIONE:\nStai usando 'localhost' sul cellulare.\n\nPer usare l'app sul telefono, devi caricarla su internet (es. Vercel) e usare quel link.");
     return;
   }
 
@@ -25,7 +30,7 @@ export const signInWithGoogle = async () => {
   
   if (error) {
     console.error('Errore Login Google:', error.message);
-    alert('ERRORE DI CONFIGURAZIONE:\n\nDevi aggiungere questo URL su Supabase:\n' + redirectUrl + '\n\nVai nel link che mi hai mandato e incollalo in "Site URL".');
+    alert('ERRORE DI CONFIGURAZIONE:\n\nDevi aggiungere questo URL esatto su Supabase (Site URL):\n' + redirectUrl + '\n\nControlla bene che non ci siano spazi o sbarre finali extra.');
   }
 };
 
@@ -127,12 +132,10 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
     store: e.store,
     date: e.date,
     category: e.category,
-    // Fix: Map database member_id to memberId to match Expense interface
     memberId: e.member_id
   }));
 };
 
-// Fix: Change expense.member_id to expense.memberId to resolve Property 'member_id' does not exist error on line 146
 export const addExpenseToSupabase = async (familyId: string, expense: Expense): Promise<void> => {
   await supabase
     .from('expenses')
@@ -154,7 +157,6 @@ export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
   await supabase.from('expenses').delete().eq('id', id);
 };
 
-// Fix: Change expense.member_id to expense.memberId to resolve Property 'member_id' does not exist error on line 165
 export const updateExpenseInSupabase = async (familyId: string, expense: Expense): Promise<void> => {
   await supabase
     .from('expenses')
@@ -198,7 +200,6 @@ export const syncCategoriesToSupabase = async (familyId: string, categories: Cat
     const rows = categories.map(c => ({ id: c.id, family_id: familyId, name: c.name, icon: c.icon, color: c.color }));
     await supabase.from('categories').upsert(rows);
 };
-// Fix: Map database reminder_days to reminderDays to match RecurringExpense interface
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
   const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
   return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, nextDueDate: r.next_due_date, reminderDays: r.reminder_days }));
