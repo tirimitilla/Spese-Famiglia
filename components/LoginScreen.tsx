@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FamilyProfile } from '../types';
-import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus } from 'lucide-react';
+import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '../services/supabaseService';
 import { supabase } from '../src/supabaseClient';
 
@@ -12,6 +12,7 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSupabaseAuth }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [familyName, setFamilyName] = useState('');
@@ -24,19 +25,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
+    
     try {
       if (isRegistering) {
         const { data, error: signUpErr } = await signUpWithEmail(email, password);
         if (signUpErr) throw signUpErr;
-        if (data.user) {
-          alert("Registrazione completata! Controlla la tua email per confermare l'account.");
+        
+        if (data.session) {
+          // Se la conferma email è OFF su Supabase, abbiamo già la sessione
+          setSuccess("Registrazione completata! Accesso in corso...");
+        } else if (data.user) {
+          // Se la conferma email è ON, l'utente deve controllare la posta
+          setSuccess("Account creato! Controlla la tua email per confermare l'indirizzo.");
+          // Opzionalmente torniamo alla modalità login dopo qualche secondo
+          setTimeout(() => setIsRegistering(false), 3000);
         }
       } else {
         const { error: signInErr } = await signInWithEmail(email, password);
-        if (signInErr) throw signInErr;
+        if (signInErr) {
+          if (signInErr.message.includes("Email not confirmed")) {
+            throw new Error("L'email non è stata confermata. Controlla la tua posta o disabilita la conferma su Supabase.");
+          }
+          throw signInErr;
+        }
       }
     } catch (err: any) {
-      setError(err.message || "Errore durante l'autenticazione.");
+      console.error("Auth Error:", err);
+      setError(err.message || "Errore durante l'autenticazione. Verifica i dati inseriti.");
     } finally {
       setLoading(false);
     }
@@ -102,20 +118,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-gray-100 animate-in fade-in zoom-in">
           <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Configurazione Famiglia</h2>
+          <p className="text-gray-500 text-sm text-center mb-6">Sei loggato correttamente! Ora crea un gruppo o unisciti a uno esistente.</p>
           <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
             <button onClick={() => setMode('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Crea</button>
             <button onClick={() => setMode('join')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Unisciti</button>
           </div>
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4 border border-red-100">{error}</div>}
+          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4 border border-red-100 flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {error}</div>}
           {mode === 'create' ? (
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <input type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="Nome del gruppo (es. Famiglia Rossi)" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500" required />
-              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Crea Famiglia'}</button>
+              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Inizia ora'}</button>
             </form>
           ) : (
             <form onSubmit={handleJoinSubmit} className="space-y-4">
-              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID ricevuto..." className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm" required />
-              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Entra nel gruppo'}</button>
+              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID (es. UUID)" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm" required />
+              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Entra nel gruppo'}</button>
             </form>
           )}
         </div>
@@ -130,11 +147,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
           <Sparkles className="w-10 h-10 text-white" />
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Spese Famiglia AI</h2>
-        <p className="text-gray-500 mb-8">Gestione bilancio sicura con RLS.</p>
+        <p className="text-gray-500 mb-8">Tieni traccia del bilancio in tempo reale.</p>
 
         {authMode === 'google' ? (
           <div className="space-y-4">
-            <button onClick={handleGoogleLogin} disabled={loading} className="w-full flex items-center justify-center gap-4 bg-white border-2 border-gray-100 hover:border-emerald-500 py-4 px-6 rounded-2xl font-bold transition-all">
+            <button onClick={handleGoogleLogin} disabled={loading} className="w-full flex items-center justify-center gap-4 bg-white border-2 border-gray-100 hover:border-emerald-500 py-4 px-6 rounded-2xl font-bold transition-all shadow-sm">
               {loading ? <Loader2 className="w-6 h-6 animate-spin text-emerald-600" /> : <><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" /> Accedi con Google</>}
             </button>
             <div className="relative py-4">
@@ -146,30 +163,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
             </button>
           </div>
         ) : (
-          <form onSubmit={handleEmailAuth} className="space-y-4 text-left">
+          <form onSubmit={handleEmailAuth} className="space-y-4 text-left animate-in fade-in slide-in-from-bottom-2">
             <div>
               <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 ml-1">Email</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="pl-12 w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500" placeholder="tua@email.com" required />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="pl-12 w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 bg-gray-50" placeholder="tua@email.com" required />
               </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 ml-1">Password</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-12 w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500" placeholder="••••••••" required />
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-12 w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 bg-gray-50" placeholder="Minimo 6 caratteri" minLength={6} required />
               </div>
             </div>
-            {error && <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-lg border border-red-100">{error}</p>}
-            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md flex items-center justify-center gap-2">
-              {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (isRegistering ? <><UserPlus className="w-5 h-5" /> Registrati</> : <><LogIn className="w-5 h-5" /> Accedi</>)}
+            
+            {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs border border-red-100 flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {error}</div>}
+            {success && <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-xs border border-emerald-100 flex items-start gap-2"><CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> {success}</div>}
+            
+            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:bg-emerald-700 active:scale-95">
+              {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (isRegistering ? <><UserPlus className="w-5 h-5" /> Crea Account</> : <><LogIn className="w-5 h-5" /> Accedi</>)}
             </button>
-            <div className="flex justify-between items-center mt-4">
-              <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-emerald-600 font-bold text-xs hover:underline">
-                {isRegistering ? "Hai già un account? Accedi" : "Non hai un account? Registrati"}
+            <div className="flex justify-between items-center mt-4 pt-2">
+              <button type="button" onClick={() => { setIsRegistering(!isRegistering); setError(''); setSuccess(''); }} className="text-emerald-600 font-bold text-xs hover:underline">
+                {isRegistering ? "Hai già un account? Accedi" : "Nuovo utente? Registrati"}
               </button>
-              <button type="button" onClick={() => setAuthMode('google')} className="text-gray-400 font-bold text-xs">Torna indietro</button>
+              <button type="button" onClick={() => { setAuthMode('google'); setError(''); setSuccess(''); }} className="text-gray-400 font-bold text-xs">Torna indietro</button>
             </div>
           </form>
         )}

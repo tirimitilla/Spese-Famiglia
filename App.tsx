@@ -68,11 +68,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      if (e.message?.includes('family_members')) {
-        setError("Il database non è pronto. Esegui lo script SQL aggiornato su Supabase.");
-      } else {
-        setError("Errore di connessione. Riprova tra poco.");
-      }
+      setError("Database non configurato o errore di rete. Controlla lo script SQL su Supabase.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -105,17 +101,32 @@ function App() {
 
   const handleSetupComplete = async (profile: FamilyProfile) => {
     if (!session?.user) return;
+    setIsLoadingData(true);
+    setError(null);
     try {
-      setIsLoadingData(true);
-      setError(null);
-      const existing = await SupabaseService.getFamilyProfile(profile.id);
-      if (!existing) await SupabaseService.createFamilyProfile(profile);
-      await SupabaseService.joinFamily(session.user.id, profile.id, session.user.user_metadata.full_name || 'Membro', !existing);
+      // 1. Tenta di creare la famiglia (se non esiste)
+      await SupabaseService.createFamilyProfile(profile);
+      
+      // 2. Unisciti alla famiglia
+      await SupabaseService.joinFamily(
+        session.user.id, 
+        profile.id, 
+        session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Membro', 
+        true // Assume admin se sta creando
+      );
+      
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
       console.error("Errore setup famiglia:", e);
-      alert("Errore: Assicurati di aver incollato lo script SQL su Supabase.");
+      const msg = e.message || "";
+      if (msg.includes("404") || msg.includes("not found")) {
+        alert("Errore: Tabella 'families' o 'family_members' non trovata. Hai eseguito lo script SQL su Supabase?");
+      } else if (msg.includes("policy")) {
+        alert("Errore di permessi (RLS). Assicurati che le policy nello script SQL siano state create.");
+      } else {
+        alert("Errore durante la creazione del gruppo. Riprova o controlla la console.");
+      }
     } finally {
       setIsLoadingData(false);
     }

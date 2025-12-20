@@ -71,7 +71,7 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
       user_id: userId,
       name: name,
       is_admin: isAdmin
-    });
+    }, { onConflict: 'family_id,user_id' });
   if (error) throw error;
 };
 
@@ -80,9 +80,9 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
     .from('families')
     .select('*')
     .eq('id', familyId)
-    .single();
+    .maybeSingle();
 
-  if (error) return null;
+  if (error || !data) return null;
 
   return {
     id: data.id,
@@ -99,8 +99,8 @@ export const createFamilyProfile = async (profile: FamilyProfile): Promise<void>
       id: profile.id,
       family_name: profile.familyName,
       members: profile.members
-    });
-  if (error) console.error('Error creating family:', error);
+    }, { onConflict: 'id' });
+  if (error) throw error;
 };
 
 // --- EXPENSES ---
