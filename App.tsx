@@ -40,8 +40,9 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) checkUserFamily(session.user.id);
-      else {
+      if (session) {
+        checkUserFamily(session.user.id);
+      } else {
         setIsAuthenticated(false);
         setFamilyProfile(null);
         setIsLoadingAuth(false);
@@ -51,7 +52,6 @@ function App() {
   }, []);
 
   const checkUserFamily = async (userId: string) => {
-    setIsLoadingData(true);
     setError(null);
     try {
       const membership = await SupabaseService.getFamilyForUser(userId);
@@ -70,13 +70,12 @@ function App() {
       console.error("Errore inizializzazione:", e);
       const msg = e.message || "";
       if (msg.includes('schema cache') || msg.includes('family_members')) {
-        setError("Supabase non trova le tabelle. Vai nell'SQL Editor di Supabase ed esegui lo script per creare le tabelle (family_members, families, etc.).");
+        setError("Il database non è configurato. Incolla lo script SQL (in INGLESE) nell'Editor di Supabase e premi RUN.");
       } else {
-        setError("Errore di connessione al database. Verifica la configurazione di Supabase.");
+        setError("Errore di comunicazione con Supabase. Verifica la connessione.");
       }
     } finally {
       setIsLoadingAuth(false);
-      setIsLoadingData(false);
     }
   };
 
@@ -97,8 +96,9 @@ function App() {
           if (cat && cat.length > 0) setCategories(cat);
         } catch (e) { 
           console.error("Errore caricamento dati:", e);
+        } finally {
+          setIsLoadingData(false);
         }
-        setIsLoadingData(false);
       };
       loadAllData();
     }
@@ -116,7 +116,7 @@ function App() {
       setIsAuthenticated(true);
     } catch (e: any) {
       console.error("Errore creazione famiglia:", e);
-      alert("Errore database: Assicurati di aver creato le tabelle SQL su Supabase.");
+      alert("Errore Database: Assicurati di aver eseguito lo script SQL in inglese su Supabase.");
     } finally {
       setIsLoadingData(false);
     }
@@ -183,7 +183,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-        <p className="mt-4 text-gray-500 font-medium">Verifica sessione in corso...</p>
+        <p className="mt-4 text-gray-500 font-medium">Caricamento...</p>
       </div>
     );
   }
@@ -202,7 +202,7 @@ function App() {
               Ricarica App
             </button>
             <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl">
-              Esci
+              Torna al Login
             </button>
           </div>
         </div>

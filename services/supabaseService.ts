@@ -3,35 +3,27 @@ import { Expense, Income, Store, RecurringExpense, ShoppingItem, FamilyProfile, 
 
 // --- AUTH ---
 export const signInWithGoogle = async () => {
-  // window.location.origin restituisce es: https://spese-famiglia-rofp.vercel.app
   let redirectUrl = window.location.origin;
-  
-  // Rimuoviamo slash finali per evitare discrepanze con la config di Supabase
   if (redirectUrl.endsWith('/')) {
     redirectUrl = redirectUrl.slice(0, -1);
   }
   
-  // Se l'URL contiene localhost, avvertiamo l'utente che sul cellulare non funzionerà
-  if (redirectUrl.includes('localhost') && /iPhone|Android|iPad/i.test(navigator.userAgent)) {
-    alert("ATTENZIONE:\nStai usando 'localhost' sul cellulare.\n\nPer usare l'app sul telefono, devi caricarla su internet (es. Vercel) e usare quel link.");
-    return;
-  }
-
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: redirectUrl,
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
     },
   });
   
-  if (error) {
-    console.error('Errore Login Google:', error.message);
-    alert('ERRORE DI CONFIGURAZIONE:\n\nDevi aggiungere questo URL esatto su Supabase (Site URL):\n' + redirectUrl + '\n\nControlla bene che non ci siano spazi extra.');
-  }
+  if (error) throw error;
+};
+
+export const signUpWithEmail = async (email: string, password: string) => {
+  return await supabase.auth.signUp({ email, password });
+};
+
+export const signInWithEmail = async (email: string, password: string) => {
+  return await supabase.auth.signInWithPassword({ email, password });
 };
 
 export const signOut = async () => {
@@ -90,10 +82,7 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
     .eq('id', familyId)
     .single();
 
-  if (error) {
-    if (error.code === 'PGRST116') return null;
-    return null;
-  }
+  if (error) return null;
 
   return {
     id: data.id,
@@ -157,23 +146,6 @@ export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
   await supabase.from('expenses').delete().eq('id', id);
 };
 
-export const updateExpenseInSupabase = async (familyId: string, expense: Expense): Promise<void> => {
-  await supabase
-    .from('expenses')
-    .update({
-        product: expense.product,
-        quantity: expense.quantity,
-        unit_price: expense.unitPrice,
-        total: expense.total,
-        store: expense.store,
-        date: expense.date,
-        category: expense.category,
-        member_id: expense.memberId
-    })
-    .eq('id', expense.id)
-    .eq('family_id', familyId);
-};
-
 export const fetchIncomes = async (familyId: string): Promise<Income[]> => {
   const { data, error } = await supabase.from('incomes').select('*').eq('family_id', familyId).order('date', { ascending: false });
   if (error) return [];
@@ -202,16 +174,13 @@ export const syncCategoriesToSupabase = async (familyId: string, categories: Cat
 };
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
   const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
-  return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, nextDueDate: r.next_due_date, reminderDays: r.reminder_days }));
+  return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, nextDueDate: r.next_due_date, reminder_days: r.reminder_days }));
 };
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense): Promise<void> => {
   await supabase.from('recurring_expenses').insert({ id: item.id, family_id: familyId, product: item.product, amount: item.amount, store: item.store, frequency: item.frequency, next_due_date: item.nextDueDate, reminder_days: item.reminderDays });
 };
 export const deleteRecurringFromSupabase = async (id: string): Promise<void> => {
   await supabase.from('recurring_expenses').delete().eq('id', id);
-};
-export const updateRecurringInSupabase = async (familyId: string, item: RecurringExpense): Promise<void> => {
-    await supabase.from('recurring_expenses').update({ next_due_date: item.nextDueDate }).eq('id', item.id).eq('family_id', familyId);
 };
 export const fetchShoppingList = async (familyId: string): Promise<ShoppingItem[]> => {
   const { data, error } = await supabase.from('shopping_list').select('*').eq('family_id', familyId);
