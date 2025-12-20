@@ -43,7 +43,11 @@ export const getFamilyForUser = async (userId: string): Promise<{ familyId: stri
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error("Error fetching user family:", JSON.stringify(error));
+    return null;
+  }
+  if (!data) return null;
   return { familyId: data.family_id, isAdmin: data.is_admin };
 };
 
@@ -53,7 +57,10 @@ export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> =>
     .select('user_id, name, is_admin')
     .eq('family_id', familyId);
 
-  if (error) return [];
+  if (error) {
+    console.error("Error fetching family members:", JSON.stringify(error));
+    return [];
+  }
   return data.map(m => ({
     id: m.user_id,
     name: m.name,
@@ -72,7 +79,11 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
       name: name,
       is_admin: isAdmin
     }, { onConflict: 'family_id,user_id' });
-  if (error) throw error;
+  
+  if (error) {
+    console.error("Error joining family:", JSON.stringify(error));
+    throw error;
+  }
 };
 
 export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile | null> => {
@@ -82,7 +93,11 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
     .eq('id', familyId)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error("Error fetching family profile:", JSON.stringify(error));
+    return null;
+  }
+  if (!data) return null;
 
   return {
     id: data.id,
@@ -100,7 +115,11 @@ export const createFamilyProfile = async (profile: FamilyProfile): Promise<void>
       family_name: profile.familyName,
       members: profile.members
     }, { onConflict: 'id' });
-  if (error) throw error;
+  
+  if (error) {
+    console.error("Error creating family profile:", JSON.stringify(error));
+    throw error;
+  }
 };
 
 // --- EXPENSES ---
@@ -111,7 +130,10 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
     .eq('family_id', familyId)
     .order('date', { ascending: false });
 
-  if (error) return [];
+  if (error) {
+    console.error("Error fetching expenses:", JSON.stringify(error));
+    return [];
+  }
   return data.map((e: any) => ({
     id: e.id,
     product: e.product,
@@ -140,11 +162,15 @@ export const addExpenseToSupabase = async (familyId: string, expense: Expense): 
       category: expense.category,
       member_id: expense.memberId
     });
-  if (error) throw error;
+  if (error) {
+    console.error("Error adding expense:", JSON.stringify(error));
+    throw error;
+  }
 };
 
 export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
-  await supabase.from('expenses').delete().eq('id', id);
+  const { error } = await supabase.from('expenses').delete().eq('id', id);
+  if (error) console.error("Error deleting expense:", JSON.stringify(error));
 };
 
 export const fetchIncomes = async (familyId: string): Promise<Income[]> => {
