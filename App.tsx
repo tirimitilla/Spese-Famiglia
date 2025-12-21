@@ -68,7 +68,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      setError("Errore di connessione al database. Verifica di aver eseguito lo script SQL correttamente.");
+      setError("Il database ha risposto con un errore. Assicurati di aver applicato correttamente lo script SQL su Supabase.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -104,19 +104,22 @@ function App() {
     setIsLoadingData(true);
     setError(null);
     try {
-      // 1. Tenta di creare la famiglia
+      // 1. Crea profilo famiglia
       await SupabaseService.createFamilyProfile(profile);
       
-      // 2. Unisciti alla famiglia
-      const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Membro';
+      // 2. Aggiungi immediatamente l'utente come membro per evitare errori di RLS nelle query successive
+      const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente';
       await SupabaseService.joinFamily(session.user.id, profile.id, name, true);
       
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
-      console.error("Errore setup famiglia completo:", e);
-      const detail = e.message || JSON.stringify(e);
-      alert(`ERRORE TECNICO: ${detail}\n\nAssicurati di aver incollato lo script SQL correttamente su Supabase.`);
+      console.error("Errore durante il setup:", e);
+      let detail = e.message || JSON.stringify(e);
+      if (detail.includes("recursion")) {
+        detail = "Rilevato loop infinito nelle regole SQL. Usa l'ultimo script SQL di 'Reset Totale' fornito dall'assistente.";
+      }
+      alert(`ERRORE CONFIGURAZIONE: ${detail}`);
     } finally {
       setIsLoadingData(false);
     }
@@ -152,6 +155,7 @@ function App() {
       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
     } catch (e) {
       console.error("Errore salvataggio spesa:", e);
+      alert("Impossibile salvare la spesa. Controlla la connessione o le regole del database.");
     } finally {
       setIsAIProcessing(false);
     }
@@ -183,7 +187,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-        <p className="mt-4 text-gray-500 font-medium text-sm">Verifica sicurezza...</p>
+        <p className="mt-4 text-gray-500 font-medium text-sm">Sincronizzazione sicurezza...</p>
       </div>
     );
   }
@@ -202,7 +206,7 @@ function App() {
               Ricarica App
             </button>
             <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-transform active:scale-95">
-              Vai al Login
+              Torna al Login
             </button>
           </div>
         </div>
@@ -248,7 +252,7 @@ function App() {
               <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                  <div>
                    <h2 className="font-bold text-xl text-gray-800">Menù</h2>
-                   <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Protezione RLS Attiva</span>
+                   <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Cloud Sync Attivo</span>
                  </div>
                  <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
@@ -271,7 +275,7 @@ function App() {
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-            <p className="text-gray-500 font-medium">Sincronizzazione Cloud...</p>
+            <p className="text-gray-500 font-medium">Caricamento dati familiari...</p>
           </div>
         ) : (
           <div className="animate-in fade-in duration-300">
