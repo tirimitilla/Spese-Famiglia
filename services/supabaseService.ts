@@ -37,18 +37,20 @@ export const getCurrentUser = async () => {
 
 // --- FAMILY & MEMBERSHIP ---
 export const getFamilyForUser = async (userId: string): Promise<{ familyId: string, isAdmin: boolean } | null> => {
-  const { data, error } = await supabase
-    .from('family_members')
-    .select('family_id, is_admin')
-    .eq('user_id', userId)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('family_members')
+      .select('family_id, is_admin')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-  if (error) {
-    console.error("Error fetching user family:", JSON.stringify(error));
+    if (error) throw error;
+    if (!data) return null;
+    return { familyId: data.family_id, isAdmin: data.is_admin };
+  } catch (err) {
+    console.error("Errore recupero famiglia utente:", err);
     return null;
   }
-  if (!data) return null;
-  return { familyId: data.family_id, isAdmin: data.is_admin };
 };
 
 export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> => {
@@ -57,10 +59,7 @@ export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> =>
     .select('user_id, name, is_admin')
     .eq('family_id', familyId);
 
-  if (error) {
-    console.error("Error fetching family members:", JSON.stringify(error));
-    return [];
-  }
+  if (error) return [];
   return data.map(m => ({
     id: m.user_id,
     name: m.name,
@@ -71,6 +70,7 @@ export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> =>
 };
 
 export const joinFamily = async (userId: string, familyId: string, name: string, isAdmin: boolean = false) => {
+  // Usiamo un controllo preventivo o un upsert pulito
   const { error } = await supabase
     .from('family_members')
     .upsert({
@@ -81,7 +81,7 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
     }, { onConflict: 'family_id,user_id' });
   
   if (error) {
-    console.error("Error joining family:", JSON.stringify(error));
+    console.error("Errore join_family:", error.message);
     throw error;
   }
 };
@@ -93,11 +93,7 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
     .eq('id', familyId)
     .maybeSingle();
 
-  if (error) {
-    console.error("Error fetching family profile:", JSON.stringify(error));
-    return null;
-  }
-  if (!data) return null;
+  if (error || !data) return null;
 
   return {
     id: data.id,
@@ -110,14 +106,15 @@ export const getFamilyProfile = async (familyId: string): Promise<FamilyProfile 
 export const createFamilyProfile = async (profile: FamilyProfile): Promise<void> => {
   const { error } = await supabase
     .from('families')
-    .upsert({
+    .insert({
       id: profile.id,
       family_name: profile.familyName,
       members: profile.members
-    }, { onConflict: 'id' });
+    });
   
   if (error) {
-    console.error("Error creating family profile:", JSON.stringify(error));
+    // Se la famiglia esiste già, non bloccare (potrebbe essere un refresh durante il setup)
+    if (error.code === '23505') return;
     throw error;
   }
 };
@@ -130,10 +127,7 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
     .eq('family_id', familyId)
     .order('date', { ascending: false });
 
-  if (error) {
-    console.error("Error fetching expenses:", JSON.stringify(error));
-    return [];
-  }
+  if (error) return [];
   return data.map((e: any) => ({
     id: e.id,
     product: e.product,
@@ -162,15 +156,11 @@ export const addExpenseToSupabase = async (familyId: string, expense: Expense): 
       category: expense.category,
       member_id: expense.memberId
     });
-  if (error) {
-    console.error("Error adding expense:", JSON.stringify(error));
-    throw error;
-  }
+  if (error) throw error;
 };
 
 export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
-  const { error } = await supabase.from('expenses').delete().eq('id', id);
-  if (error) console.error("Error deleting expense:", JSON.stringify(error));
+  await supabase.from('expenses').delete().eq('id', id);
 };
 
 export const fetchIncomes = async (familyId: string): Promise<Income[]> => {
@@ -208,7 +198,7 @@ export const syncCategoriesToSupabase = async (familyId: string, categories: Cat
 
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
   const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
-  return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, nextDueDate: r.next_due_date, reminder_days: r.reminder_days }));
+  return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, next_due_date: r.next_due_date, reminder_days: r.reminder_days }));
 };
 
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense): Promise<void> => {

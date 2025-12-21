@@ -61,6 +61,7 @@ function App() {
           setFamilyProfile(profile);
           setIsAuthenticated(true);
         } else {
+          // L'utente è in un gruppo ma il gruppo non esiste più o errore query
           setIsAuthenticated(false);
         }
       } else {
@@ -68,7 +69,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      setError("Il database ha risposto con un errore. Assicurati di aver applicato correttamente lo script SQL su Supabase.");
+      // Non mostriamo l'errore bloccante qui, lasciamo che l'utente provi a riloggare o fare setup
     } finally {
       setIsLoadingAuth(false);
     }
@@ -107,19 +108,17 @@ function App() {
       // 1. Crea profilo famiglia
       await SupabaseService.createFamilyProfile(profile);
       
-      // 2. Aggiungi immediatamente l'utente come membro per evitare errori di RLS nelle query successive
+      // 2. Aggiungi immediatamente l'utente come membro
       const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente';
       await SupabaseService.joinFamily(session.user.id, profile.id, name, true);
       
+      // Successo! Aggiorna stato locale
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
       console.error("Errore durante il setup:", e);
-      let detail = e.message || JSON.stringify(e);
-      if (detail.includes("recursion")) {
-        detail = "Rilevato loop infinito nelle regole SQL. Usa l'ultimo script SQL di 'Reset Totale' fornito dall'assistente.";
-      }
-      alert(`ERRORE CONFIGURAZIONE: ${detail}`);
+      const detail = e.message || JSON.stringify(e);
+      alert(`ATTENZIONE: ${detail}\n\nSe vedi ancora errori di ricorsione, ricarica la pagina e assicurati di aver eseguito lo script SQL 'Flat Policy'.`);
     } finally {
       setIsLoadingData(false);
     }
@@ -155,7 +154,7 @@ function App() {
       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
     } catch (e) {
       console.error("Errore salvataggio spesa:", e);
-      alert("Impossibile salvare la spesa. Controlla la connessione o le regole del database.");
+      alert("Errore database: controlla la connessione.");
     } finally {
       setIsAIProcessing(false);
     }
@@ -275,7 +274,7 @@ function App() {
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-            <p className="text-gray-500 font-medium">Caricamento dati familiari...</p>
+            <p className="text-gray-500 font-medium">Caricamento dati...</p>
           </div>
         ) : (
           <div className="animate-in fade-in duration-300">
