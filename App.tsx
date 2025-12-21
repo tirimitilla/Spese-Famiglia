@@ -68,7 +68,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      setError("Database non configurato o errore di rete. Controlla lo script SQL su Supabase.");
+      setError("Errore di connessione al database. Verifica di aver eseguito lo script SQL correttamente.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -104,29 +104,19 @@ function App() {
     setIsLoadingData(true);
     setError(null);
     try {
-      // 1. Tenta di creare la famiglia (se non esiste)
+      // 1. Tenta di creare la famiglia
       await SupabaseService.createFamilyProfile(profile);
       
       // 2. Unisciti alla famiglia
-      await SupabaseService.joinFamily(
-        session.user.id, 
-        profile.id, 
-        session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Membro', 
-        true // Assume admin se sta creando
-      );
+      const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Membro';
+      await SupabaseService.joinFamily(session.user.id, profile.id, name, true);
       
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
-      console.error("Errore setup famiglia:", e);
-      const msg = e.message || "";
-      if (msg.includes("404") || msg.includes("not found")) {
-        alert("Errore: Tabella 'families' o 'family_members' non trovata. Hai eseguito lo script SQL su Supabase?");
-      } else if (msg.includes("policy")) {
-        alert("Errore di permessi (RLS). Assicurati che le policy nello script SQL siano state create.");
-      } else {
-        alert("Errore durante la creazione del gruppo. Riprova o controlla la console.");
-      }
+      console.error("Errore setup famiglia completo:", e);
+      const detail = e.message || JSON.stringify(e);
+      alert(`ERRORE TECNICO: ${detail}\n\nAssicurati di aver incollato lo script SQL correttamente su Supabase.`);
     } finally {
       setIsLoadingData(false);
     }
@@ -306,7 +296,6 @@ function App() {
                 onDelete={(id) => SupabaseService.deleteExpenseFromSupabase(id).then(() => setExpenses(prev => prev.filter(e => e.id !== id)))} 
                 onEdit={(updated) => {
                   setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
-                  // Nota: In un'app reale dovresti aggiornare anche Supabase qui
                 }} 
               />
             )}
