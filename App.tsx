@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition } from './types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -7,11 +7,14 @@ import { LoginScreen } from './components/LoginScreen';
 import { IncomeManager } from './components/IncomeManager';
 import { CategoryManager } from './components/CategoryManager';
 import { FamilyManager } from './components/FamilyManager';
+import { ReceiptScanner } from './components/ReceiptScanner';
+import { ShoppingListManager } from './components/ShoppingListManager';
+import { ReceiptData } from './services/geminiService';
 import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database
+  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles
 } from 'lucide-react';
 
 type View = 'dashboard' | 'history' | 'budget' | 'categories' | 'profile';
@@ -23,6 +26,7 @@ function App() {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   const [categories, setCategories] = useState<CategoryDefinition[]>(DEFAULT_CATEGORIES);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -30,6 +34,17 @@ function App() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Deriviamo la cronologia prodotti per suggerimenti
+  const productHistory = useMemo(() => {
+    const history: Record<string, string> = {};
+    [...expenses].reverse().forEach(exp => {
+      history[exp.product] = exp.store;
+    });
+    return history;
+  }, [expenses]);
+
+  const existingProducts = useMemo(() => Object.keys(productHistory), [productHistory]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -68,7 +83,7 @@ function App() {
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
       if (e.message && e.message.includes('recursion')) {
-        setError("Errore ricorsione database. Per favore esegui lo script SQL 'Tabula Rasa'.");
+        setError("Errore ricorsione database. Per favore esegui lo script SQL aggiornato.");
       }
     } finally {
       setIsLoadingAuth(false);
@@ -80,14 +95,16 @@ function App() {
       const loadAllData = async () => {
         setIsLoadingData(true);
         try {
-          const [exp, inc, sto, cat] = await Promise.all([
+          const [exp, inc, sto, cat, shop] = await Promise.all([
             SupabaseService.fetchExpenses(familyProfile.id),
             SupabaseService.fetchIncomes(familyProfile.id),
             SupabaseService.fetchStores(familyProfile.id),
-            SupabaseService.fetchCategories(familyProfile.id)
+            SupabaseService.fetchCategories(familyProfile.id),
+            SupabaseService.fetchShoppingList(familyProfile.id)
           ]);
           setExpenses(exp || []);
           setIncomes(inc || []);
+          setShoppingItems(shop || []);
           if (sto && sto.length > 0) setStores(sto);
           if (cat && cat.length > 0) setCategories(cat);
         } catch (e: any) { 
@@ -122,6 +139,7 @@ function App() {
     setFamilyProfile(null);
     setExpenses([]);
     setIncomes([]);
+    setShoppingItems([]);
     setIsMenuOpen(false);
     setError(null);
   };
@@ -149,6 +167,60 @@ function App() {
     } finally {
       setIsAIProcessing(false);
     }
+  };
+
+  const handleScanComplete = async (data: ReceiptData) => {
+    if (!familyProfile) return;
+    setIsAIProcessing(true);
+    try {
+      const newExpenses: Expense[] = [];
+      for (const item of data.items) {
+        const newExpense: Expense = {
+          id: crypto.randomUUID(),
+          product: item.product,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+          store: data.store || 'Sconosciuto',
+          date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+          category: item.category || 'Alimentari',
+          memberId: session?.user?.id
+        };
+        await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
+        newExpenses.push(newExpense);
+      }
+      setExpenses(prev => [...newExpenses, ...prev]);
+      if (data.store && !stores.some(s => s.name.toLowerCase() === data.store.toLowerCase())) {
+        const newStore = { id: crypto.randomUUID(), name: data.store };
+        await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
+        setStores(prev => [...prev, newStore]);
+      }
+    } catch (err) {
+      console.error("Errore durante il salvataggio dello scontrino:", err);
+      alert("Errore nel caricamento dei prodotti. Verifica che le tabelle SQL siano create.");
+    } finally {
+      setIsAIProcessing(false);
+    }
+  };
+
+  const handleAddShoppingItem = async (product: string, store: string) => {
+    if (!familyProfile) return;
+    const newItem: ShoppingItem = { id: crypto.randomUUID(), product, store, completed: false };
+    setShoppingItems(prev => [newItem, ...prev]);
+    await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
+  };
+
+  const handleToggleShoppingItem = async (id: string) => {
+    const item = shoppingItems.find(i => i.id === id);
+    if (!item) return;
+    const updated = { ...item, completed: !item.completed };
+    setShoppingItems(prev => prev.map(i => i.id === id ? updated : i));
+    await SupabaseService.updateShoppingItemInSupabase(updated);
+  };
+
+  const handleDeleteShoppingItem = async (id: string) => {
+    setShoppingItems(prev => prev.filter(i => i.id !== id));
+    await SupabaseService.deleteShoppingItemFromSupabase(id);
   };
 
   const handleAddIncome = async (source: string, amount: number, date: string) => {
@@ -265,14 +337,29 @@ function App() {
           <div className="animate-in fade-in duration-300">
             {currentView === 'dashboard' && (
                 <div className="space-y-6">
+                    {/* 1. SCANNER (Veloce) */}
+                    <ReceiptScanner onScanComplete={handleScanComplete} />
+
+                    {/* 2. LISTA DELLA SPESA (Importante) */}
+                    <ShoppingListManager 
+                      items={shoppingItems} 
+                      stores={stores} 
+                      productHistory={productHistory} 
+                      onAddItem={handleAddShoppingItem} 
+                      onToggleItem={handleToggleShoppingItem} 
+                      onDeleteItem={handleDeleteShoppingItem} 
+                    />
+
+                    {/* 3. FORM MANUALE (Dettaglio) */}
                     <ExpenseForm 
                       stores={stores} 
                       members={[]} 
-                      existingProducts={[]} 
-                      productHistory={{}} 
+                      existingProducts={existingProducts} 
+                      productHistory={productHistory} 
                       onAddExpense={handleAddExpense} 
                       isAnalyzing={isAIProcessing} 
                     />
+                    
                     <StoreManager onAddStore={(name) => SupabaseService.addStoreToSupabase(familyProfile!.id, {id: crypto.randomUUID(), name}).then(() => setStores(prev => [...prev, {id: crypto.randomUUID(), name}]))} />
                 </div>
             )}
