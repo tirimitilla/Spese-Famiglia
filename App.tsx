@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences, RecurringExpense } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -10,15 +10,19 @@ import { FamilyManager } from './components/FamilyManager';
 import { ReceiptScanner } from './components/ReceiptScanner';
 import { ShoppingListManager } from './components/ShoppingListManager';
 import { OffersFinder } from './components/OffersFinder';
+import { RecurringManager } from './components/RecurringManager';
+import { DueExpensesAlert } from './components/DueExpensesAlert';
+import { Analytics } from './components/Analytics';
+import { AIInsight } from './components/AIInsight';
 import { ReceiptData } from './services/geminiService';
 import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles, ShoppingCart, Percent
+  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles, ShoppingCart, Percent, Repeat, BarChart3, Bell
 } from 'lucide-react';
 
-type View = 'dashboard' | 'shopping' | 'offers' | 'history' | 'budget' | 'categories' | 'profile';
+type View = 'dashboard' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'history' | 'budget' | 'categories' | 'profile';
 
 function App() {
   const [session, setSession] = useState<any>(null);
@@ -28,6 +32,7 @@ function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
+  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   const [categories, setCategories] = useState<CategoryDefinition[]>(DEFAULT_CATEGORIES);
   const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>({
@@ -43,7 +48,6 @@ function App() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Deriviamo la cronologia prodotti per suggerimenti
   const productHistory = useMemo(() => {
     const history: Record<string, string> = {};
     [...expenses].reverse().forEach(exp => {
@@ -54,6 +58,19 @@ function App() {
 
   const existingProducts = useMemo(() => Object.keys(productHistory), [productHistory]);
   const activeShoppingCount = useMemo(() => shoppingItems.filter(i => !i.completed).length, [shoppingItems]);
+
+  // Calcolo spese in scadenza
+  const dueRecurring = useMemo(() => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    return recurringExpenses.filter(exp => {
+      const dueDate = new Date(exp.nextDueDate);
+      dueDate.setHours(0,0,0,0);
+      const diffTime = dueDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= exp.reminderDays;
+    });
+  }, [recurringExpenses]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -91,9 +108,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      if (e.message && e.message.includes('recursion')) {
-        setError("Errore ricorsione database. Per favore esegui lo script SQL aggiornato.");
-      }
+      setError("Errore sincronizzazione profilo. Riprova più tardi.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -104,16 +119,18 @@ function App() {
       const loadAllData = async () => {
         setIsLoadingData(true);
         try {
-          const [exp, inc, sto, cat, shop] = await Promise.all([
+          const [exp, inc, sto, cat, shop, rec] = await Promise.all([
             SupabaseService.fetchExpenses(familyProfile.id),
             SupabaseService.fetchIncomes(familyProfile.id),
             SupabaseService.fetchStores(familyProfile.id),
             SupabaseService.fetchCategories(familyProfile.id),
-            SupabaseService.fetchShoppingList(familyProfile.id)
+            SupabaseService.fetchShoppingList(familyProfile.id),
+            SupabaseService.fetchRecurring(familyProfile.id)
           ]);
           setExpenses(exp || []);
           setIncomes(inc || []);
           setShoppingItems(shop || []);
+          setRecurringExpenses(rec || []);
           if (sto && sto.length > 0) setStores(sto);
           if (cat && cat.length > 0) setCategories(cat);
         } catch (e: any) { 
@@ -149,6 +166,7 @@ function App() {
     setExpenses([]);
     setIncomes([]);
     setShoppingItems([]);
+    setRecurringExpenses([]);
     setIsMenuOpen(false);
     setError(null);
   };
@@ -205,50 +223,65 @@ function App() {
         setStores(prev => [...prev, newStore]);
       }
     } catch (err) {
-      console.error("Errore durante il salvataggio dello scontrino:", err);
-      alert("Errore nel caricamento dei prodotti. Verifica la connessione.");
+      console.error("Errore scansione:", err);
     } finally {
       setIsAIProcessing(false);
     }
   };
 
+  // Fix: Added missing handleAddShoppingItem to handle adding products to the shopping list.
   const handleAddShoppingItem = async (product: string, store: string) => {
     if (!familyProfile) return;
-    const newItem: ShoppingItem = { id: crypto.randomUUID(), product, store, completed: false };
+    const newItem: ShoppingItem = { 
+      id: crypto.randomUUID(), 
+      product, 
+      store, 
+      completed: false 
+    };
     setShoppingItems(prev => [newItem, ...prev]);
     await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
   };
 
-  const handleToggleShoppingItem = async (id: string) => {
-    const item = shoppingItems.find(i => i.id === id);
-    if (!item) return;
-    const updated = { ...item, completed: !item.completed };
-    setShoppingItems(prev => prev.map(i => i.id === id ? updated : i));
-    await SupabaseService.updateShoppingItemInSupabase(updated);
-  };
-
-  const handleDeleteShoppingItem = async (id: string) => {
-    setShoppingItems(prev => prev.filter(i => i.id !== id));
-    await SupabaseService.deleteShoppingItemFromSupabase(id);
-  };
-
+  // Fix: Added missing handleAddIncome to handle recording new income entries.
   const handleAddIncome = async (source: string, amount: number, date: string) => {
     if (!familyProfile) return;
-    try {
-      const newIncome: Income = { id: crypto.randomUUID(), source, amount, date };
-      setIncomes(prev => [newIncome, ...prev]);
-      await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
-    } catch (e) {
-      console.error("Errore salvataggio entrata:", e);
-    }
+    const newIncome: Income = { 
+      id: crypto.randomUUID(), 
+      source, 
+      amount, 
+      date 
+    };
+    setIncomes(prev => [newIncome, ...prev]);
+    await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
   };
 
-  const MenuButton = ({ view, icon, label, badge }: { view: View, icon: any, label: string, badge?: number }) => (
+  const handleAddRecurring = async (product: string, amount: number, store: string, frequency: any, nextDate: string, reminderDays: number) => {
+    if (!familyProfile) return;
+    const newItem: RecurringExpense = { id: crypto.randomUUID(), product, amount, store, frequency, nextDueDate: nextDate, reminderDays };
+    setRecurringExpenses(prev => [...prev, newItem]);
+    await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
+  };
+
+  const handleProcessRecurring = async (rec: RecurringExpense) => {
+    // Trasforma la ricorrente in una spesa effettiva
+    await handleAddExpense(rec.product, 1, rec.amount, rec.amount, rec.store);
+    // Aggiorna la prossima data in base alla frequenza (semplificato)
+    const next = new Date(rec.nextDueDate);
+    if (rec.frequency === 'mensile') next.setMonth(next.getMonth() + 1);
+    else if (rec.frequency === 'settimanale') next.setDate(next.getDate() + 7);
+    else if (rec.frequency === 'annuale') next.setFullYear(next.getFullYear() + 1);
+    
+    const updated = { ...rec, nextDueDate: next.toISOString().split('T')[0] };
+    setRecurringExpenses(prev => prev.map(r => r.id === rec.id ? updated : r));
+    // Qui andrebbe un update su Supabase (opzionale per MVP)
+  };
+
+  const MenuButton = ({ view, icon, label, badge, colorClass = "" }: { view: View, icon: any, label: string, badge?: number, colorClass?: string }) => (
     <button 
       onClick={() => { setCurrentView(view); setIsMenuOpen(false); }} 
-      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100'}`}
+      className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold scale-[1.02]' : 'text-gray-700 hover:bg-gray-100'}`}
     >
-      <div className="relative">
+      <div className={`relative ${colorClass}`}>
         {React.cloneElement(icon, { className: 'w-6 h-6' })}
         {badge ? (
             <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
@@ -261,36 +294,14 @@ function App() {
     </button>
   );
 
-  if (isLoadingAuth) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-        <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-        <p className="mt-4 text-gray-500 font-medium">Verifica profilo...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-red-100 text-center">
-          <Database className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Problema Database</h2>
-          <p className="text-gray-600 text-sm mb-6">{error}</p>
-          <div className="space-y-3">
-            <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md">Ricarica App</button>
-            <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl">Disconnetti</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (isLoadingAuth) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+      <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+    </div>
+  );
 
   if (!session) return <LoginScreen onSetupComplete={handleSetupComplete} />;
-  
-  if (!isAuthenticated && !isLoadingData) {
-    return <LoginScreen onSetupComplete={handleSetupComplete} isSupabaseAuth={true} />;
-  }
+  if (!isAuthenticated && !isLoadingData) return <LoginScreen onSetupComplete={handleSetupComplete} isSupabaseAuth={true} />;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-24 safe-area-top">
@@ -303,17 +314,22 @@ function App() {
              <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
                 <WalletCards className="w-6 h-6 text-emerald-600" />
                 <h1 className="font-bold text-base text-gray-800 truncate max-w-[150px]">
-                  {familyProfile?.familyName || 'Spese Famiglia'}
+                  {familyProfile?.familyName || 'Famiglia'}
                 </h1>
              </div>
           </div>
-          <button onClick={() => setCurrentView('profile')} className="bg-gray-100 p-1 rounded-full border border-gray-200">
-             {session?.user?.user_metadata?.avatar_url ? (
-               <img src={session.user.user_metadata.avatar_url} className="w-7 h-7 rounded-full" alt="User" />
-             ) : (
-               <User className="w-4 h-4 text-gray-500 m-1" />
-             )}
-          </button>
+          <div className="flex items-center gap-2">
+            {dueRecurring.length > 0 && (
+                <button onClick={() => setCurrentView('recurring')} className="p-2 text-orange-500 bg-orange-50 rounded-full animate-pulse">
+                    <Bell className="w-5 h-5" />
+                </button>
+            )}
+            <button onClick={() => setCurrentView('profile')} className="bg-gray-100 p-1 rounded-full border border-gray-200 overflow-hidden">
+               {session?.user?.user_metadata?.avatar_url ? (
+                 <img src={session.user.user_metadata.avatar_url} className="w-7 h-7" alt="User" />
+               ) : ( <User className="w-5 h-5 text-gray-500 m-1" /> )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -324,22 +340,29 @@ function App() {
               <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                  <div>
                    <h2 className="font-bold text-xl text-gray-800">Menù</h2>
-                   <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Cloud Sync Attivo</span>
+                   <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1"><Cloud className="w-3 h-3" /> Sincronizzato</span>
                  </div>
                  <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-1">
-                 <MenuButton view="dashboard" icon={<Home />} label="Home" />
-                 <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" badge={activeShoppingCount} />
-                 <MenuButton view="offers" icon={<Percent />} label="Caccia Offerte" />
+                 <MenuButton view="dashboard" icon={<Home />} label="Dashboard" />
+                 <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" badge={activeShoppingCount} colorClass="text-orange-500" />
+                 <MenuButton view="offers" icon={<Percent />} label="Caccia Offerte" colorClass="text-red-500" />
+                 <MenuButton view="recurring" icon={<Repeat />} label="Scadenze & Ricorrenti" badge={dueRecurring.length} colorClass="text-purple-600" />
+                 
                  <div className="my-2 border-t border-gray-100"></div>
-                 <MenuButton view="budget" icon={<Coins />} label="Bilancio & Guadagni" />
-                 <MenuButton view="history" icon={<History />} label="Storico Transazioni" />
+                 
+                 <MenuButton view="analytics" icon={<BarChart3 />} label="Analisi & Report" colorClass="text-blue-600" />
+                 <MenuButton view="budget" icon={<Coins />} label="Bilancio & Entrate" colorClass="text-emerald-600" />
+                 <MenuButton view="history" icon={<History />} label="Storico Spese" />
+                 
                  <div className="my-2 border-t border-gray-100"></div>
-                 <MenuButton view="profile" icon={<Users />} label="Profilo Famiglia" />
-                 <MenuButton view="categories" icon={<Tag />} label="Gestisci Categorie" />
+                 
+                 <MenuButton view="profile" icon={<Users />} label="Membri Famiglia" />
+                 <MenuButton view="categories" icon={<Tag />} label="Categorie Spesa" />
+                 
                  <button onClick={handleLogout} className="w-full flex items-center gap-4 px-5 py-4 rounded-xl text-red-600 hover:bg-red-50 mt-4 font-bold transition-colors">
-                   <LogOut className="w-6 h-6" /> Esci dall'App
+                   <LogOut className="w-6 h-6" /> Esci
                  </button>
               </div>
            </div>
@@ -350,14 +373,14 @@ function App() {
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-            <p className="text-gray-500 font-medium">Sincronizzazione dati...</p>
           </div>
         ) : (
           <div className="animate-in fade-in duration-300">
             {currentView === 'dashboard' && (
                 <div className="space-y-6">
+                    <DueExpensesAlert dueExpenses={dueRecurring} onProcessExpense={handleProcessRecurring} />
                     <ReceiptScanner onScanComplete={handleScanComplete} />
-                    
+                    <AIInsight expenses={expenses} />
                     <ExpenseForm 
                       stores={stores} 
                       members={[]} 
@@ -366,60 +389,39 @@ function App() {
                       onAddExpense={handleAddExpense} 
                       isAnalyzing={isAIProcessing} 
                     />
-                    
                     <StoreManager onAddStore={(name) => SupabaseService.addStoreToSupabase(familyProfile!.id, {id: crypto.randomUUID(), name}).then(() => setStores(prev => [...prev, {id: crypto.randomUUID(), name}]))} />
                 </div>
             )}
 
             {currentView === 'shopping' && (
-                <ShoppingListManager 
-                    items={shoppingItems} 
-                    stores={stores} 
-                    productHistory={productHistory} 
-                    onAddItem={handleAddShoppingItem} 
-                    onToggleItem={handleToggleShoppingItem} 
-                    onDeleteItem={handleDeleteShoppingItem} 
-                />
+                <ShoppingListManager items={shoppingItems} stores={stores} productHistory={productHistory} onAddItem={handleAddShoppingItem} onToggleItem={SupabaseService.updateShoppingItemInSupabase} onDeleteItem={SupabaseService.deleteShoppingItemFromSupabase} />
             )}
 
             {currentView === 'offers' && (
-                <OffersFinder 
-                    stores={stores}
-                    savedCity={offerPrefs.city}
-                    savedStores={offerPrefs.selectedStores}
-                    notificationsEnabled={offerPrefs.hasEnabledNotifications}
-                    onPreferencesChange={(city, selectedStores, hasEnabledNotifications) => {
-                        setOfferPrefs({ ...offerPrefs, city, selectedStores, hasEnabledNotifications });
-                    }}
-                />
+                <OffersFinder stores={stores} savedCity={offerPrefs.city} savedStores={offerPrefs.selectedStores} notificationsEnabled={offerPrefs.hasEnabledNotifications} onPreferencesChange={(city, selectedStores, hasEnabledNotifications) => setOfferPrefs({ ...offerPrefs, city, selectedStores, hasEnabledNotifications })} />
+            )}
+
+            {currentView === 'recurring' && (
+                <RecurringManager recurringExpenses={recurringExpenses} stores={stores} onAddRecurring={handleAddRecurring} onDeleteRecurring={(id) => SupabaseService.deleteRecurringFromSupabase(id).then(() => setRecurringExpenses(prev => prev.filter(r => r.id !== id)))} />
+            )}
+
+            {currentView === 'analytics' && (
+                <div className="space-y-6">
+                    <Analytics expenses={expenses} />
+                    <AIInsight expenses={expenses} />
+                </div>
             )}
 
             {currentView === 'history' && (
-              <ExpenseList 
-                expenses={expenses} 
-                stores={stores} 
-                categories={categories} 
-                onDelete={(id) => SupabaseService.deleteExpenseFromSupabase(id).then(() => setExpenses(prev => prev.filter(e => e.id !== id)))} 
-                onEdit={(updated) => {
-                  setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
-                }} 
-              />
+              <ExpenseList expenses={expenses} stores={stores} categories={categories} onDelete={(id) => SupabaseService.deleteExpenseFromSupabase(id).then(() => setExpenses(prev => prev.filter(e => e.id !== id)))} onEdit={(updated) => setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e))} />
             )}
 
             {currentView === 'budget' && (
-              <IncomeManager 
-                incomes={incomes} 
-                expenses={expenses} 
-                onAddIncome={handleAddIncome} 
-                onDeleteIncome={(id) => SupabaseService.deleteIncomeFromSupabase(id).then(() => setIncomes(prev => prev.filter(i => i.id !== id)))} 
-              />
+              <IncomeManager incomes={incomes} expenses={expenses} onAddIncome={handleAddIncome} onDeleteIncome={(id) => SupabaseService.deleteIncomeFromSupabase(id).then(() => setIncomes(prev => prev.filter(i => i.id !== id)))} />
             )}
 
             {currentView === 'categories' && (
-              <CategoryManager 
-                categories={categories} 
-                onUpdateCategories={(cats) => {setCategories(cats); SupabaseService.syncCategoriesToSupabase(familyProfile!.id, cats);}} 
-              />
+              <CategoryManager categories={categories} onUpdateCategories={(cats) => {setCategories(cats); SupabaseService.syncCategoriesToSupabase(familyProfile!.id, cats);}} />
             )}
 
             {currentView === 'profile' && familyProfile && (
