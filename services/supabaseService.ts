@@ -44,12 +44,17 @@ export const getFamilyForUser = async (userId: string): Promise<{ familyId: stri
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) {
+      if (error.message.includes('recursion')) {
+        throw new Error("LOOP_DETECTED");
+      }
+      return null;
+    }
     if (!data) return null;
     return { familyId: data.family_id, isAdmin: data.is_admin };
   } catch (err) {
-    console.error("Errore recupero famiglia utente:", err);
-    return null;
+    console.error("Errore recupero famiglia:", err);
+    throw err;
   }
 };
 
@@ -70,7 +75,6 @@ export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> =>
 };
 
 export const joinFamily = async (userId: string, familyId: string, name: string, isAdmin: boolean = false) => {
-  // Usiamo un controllo preventivo o un upsert pulito
   const { error } = await supabase
     .from('family_members')
     .upsert({
@@ -81,7 +85,7 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
     }, { onConflict: 'family_id,user_id' });
   
   if (error) {
-    console.error("Errore join_family:", error.message);
+    console.error("Errore durante l'adesione alla famiglia:", error.message);
     throw error;
   }
 };
@@ -113,8 +117,7 @@ export const createFamilyProfile = async (profile: FamilyProfile): Promise<void>
     });
   
   if (error) {
-    // Se la famiglia esiste già, non bloccare (potrebbe essere un refresh durante il setup)
-    if (error.code === '23505') return;
+    if (error.code === '23505') return; // Già esiste
     throw error;
   }
 };

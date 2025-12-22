@@ -61,7 +61,6 @@ function App() {
           setFamilyProfile(profile);
           setIsAuthenticated(true);
         } else {
-          // L'utente è in un gruppo ma il gruppo non esiste più o errore query
           setIsAuthenticated(false);
         }
       } else {
@@ -69,7 +68,9 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      // Non mostriamo l'errore bloccante qui, lasciamo che l'utente provi a riloggare o fare setup
+      if (e.message === "LOOP_DETECTED" || (e.message && e.message.includes('recursion'))) {
+        setError("Errore critico del database (Ricorsione). Per favore, esegui l'ultimo script SQL 'Azione Risolutiva' fornito dall'assistente su Supabase.");
+      }
     } finally {
       setIsLoadingAuth(false);
     }
@@ -90,8 +91,11 @@ function App() {
           setIncomes(inc || []);
           if (sto && sto.length > 0) setStores(sto);
           if (cat && cat.length > 0) setCategories(cat);
-        } catch (e) { 
+        } catch (e: any) { 
           console.error("Errore caricamento dati:", e);
+          if (e.message && e.message.includes('recursion')) {
+            setError("Rilevata ricorsione nel database. Applica lo script SQL correttivo su Supabase.");
+          }
         } finally {
           setIsLoadingData(false);
         }
@@ -112,13 +116,16 @@ function App() {
       const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente';
       await SupabaseService.joinFamily(session.user.id, profile.id, name, true);
       
-      // Successo! Aggiorna stato locale
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
       console.error("Errore durante il setup:", e);
       const detail = e.message || JSON.stringify(e);
-      alert(`ATTENZIONE: ${detail}\n\nSe vedi ancora errori di ricorsione, ricarica la pagina e assicurati di aver eseguito lo script SQL 'Flat Policy'.`);
+      if (detail.includes("recursion")) {
+        alert("ERRORE DATABASE: Ricorsione infinita rilevata. Per risolvere, incolla lo script SQL 'Azione Risolutiva' nel SQL Editor di Supabase.");
+      } else {
+        alert(`ATTENZIONE: ${detail}`);
+      }
     } finally {
       setIsLoadingData(false);
     }
@@ -152,9 +159,13 @@ function App() {
       };
       setExpenses(prev => [newExpense, ...prev]);
       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Errore salvataggio spesa:", e);
-      alert("Errore database: controlla la connessione.");
+      if (e.message && e.message.includes('recursion')) {
+        setError("Errore ricorsione database. Applica lo script SQL su Supabase.");
+      } else {
+        alert("Errore salvataggio. Controlla la connessione.");
+      }
     } finally {
       setIsAIProcessing(false);
     }
@@ -186,7 +197,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-        <p className="mt-4 text-gray-500 font-medium text-sm">Sincronizzazione sicurezza...</p>
+        <p className="mt-4 text-gray-500 font-medium text-sm">Verifica sicurezza in corso...</p>
       </div>
     );
   }
@@ -198,14 +209,14 @@ function App() {
           <div className="bg-amber-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Database className="w-8 h-8 text-amber-600" />
           </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Azione Richiesta</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Problema Database</h2>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed">{error}</p>
           <div className="space-y-3">
             <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md transition-transform active:scale-95">
               Ricarica App
             </button>
             <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-transform active:scale-95">
-              Torna al Login
+              Disconnetti
             </button>
           </div>
         </div>
@@ -274,7 +285,7 @@ function App() {
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-            <p className="text-gray-500 font-medium">Caricamento dati...</p>
+            <p className="text-gray-500 font-medium">Sincronizzazione dati...</p>
           </div>
         ) : (
           <div className="animate-in fade-in duration-300">
