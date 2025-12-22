@@ -52,7 +52,6 @@ function App() {
   }, []);
 
   const checkUserFamily = async (userId: string) => {
-    setError(null);
     try {
       const membership = await SupabaseService.getFamilyForUser(userId);
       if (membership) {
@@ -68,8 +67,8 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      if (e.message === "LOOP_DETECTED" || (e.message && e.message.includes('recursion'))) {
-        setError("Errore critico del database (Ricorsione). Per favore, esegui l'ultimo script SQL 'Azione Risolutiva' fornito dall'assistente su Supabase.");
+      if (e.message && e.message.includes('recursion')) {
+        setError("Errore ricorsione database. Per favore esegui lo script SQL 'Tabula Rasa'.");
       }
     } finally {
       setIsLoadingAuth(false);
@@ -93,9 +92,6 @@ function App() {
           if (cat && cat.length > 0) setCategories(cat);
         } catch (e: any) { 
           console.error("Errore caricamento dati:", e);
-          if (e.message && e.message.includes('recursion')) {
-            setError("Rilevata ricorsione nel database. Applica lo script SQL correttivo su Supabase.");
-          }
         } finally {
           setIsLoadingData(false);
         }
@@ -107,25 +103,14 @@ function App() {
   const handleSetupComplete = async (profile: FamilyProfile) => {
     if (!session?.user) return;
     setIsLoadingData(true);
-    setError(null);
     try {
-      // 1. Crea profilo famiglia
       await SupabaseService.createFamilyProfile(profile);
-      
-      // 2. Aggiungi immediatamente l'utente come membro
       const name = session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente';
       await SupabaseService.joinFamily(session.user.id, profile.id, name, true);
-      
       setFamilyProfile(profile);
       setIsAuthenticated(true);
     } catch (e: any) {
-      console.error("Errore durante il setup:", e);
-      const detail = e.message || JSON.stringify(e);
-      if (detail.includes("recursion")) {
-        alert("ERRORE DATABASE: Ricorsione infinita rilevata. Per risolvere, incolla lo script SQL 'Azione Risolutiva' nel SQL Editor di Supabase.");
-      } else {
-        alert(`ATTENZIONE: ${detail}`);
-      }
+      alert(`Errore: ${e.message}`);
     } finally {
       setIsLoadingData(false);
     }
@@ -161,11 +146,6 @@ function App() {
       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
     } catch (e: any) {
       console.error("Errore salvataggio spesa:", e);
-      if (e.message && e.message.includes('recursion')) {
-        setError("Errore ricorsione database. Applica lo script SQL su Supabase.");
-      } else {
-        alert("Errore salvataggio. Controlla la connessione.");
-      }
     } finally {
       setIsAIProcessing(false);
     }
@@ -197,7 +177,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-        <p className="mt-4 text-gray-500 font-medium text-sm">Verifica sicurezza in corso...</p>
+        <p className="mt-4 text-gray-500 font-medium">Verifica profilo...</p>
       </div>
     );
   }
@@ -206,18 +186,12 @@ function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-red-100 text-center">
-          <div className="bg-amber-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Database className="w-8 h-8 text-amber-600" />
-          </div>
+          <Database className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-800 mb-2">Problema Database</h2>
-          <p className="text-gray-600 text-sm mb-6 leading-relaxed">{error}</p>
+          <p className="text-gray-600 text-sm mb-6">{error}</p>
           <div className="space-y-3">
-            <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md transition-transform active:scale-95">
-              Ricarica App
-            </button>
-            <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-transform active:scale-95">
-              Disconnetti
-            </button>
+            <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md">Ricarica App</button>
+            <button onClick={handleLogout} className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl">Disconnetti</button>
           </div>
         </div>
       </div>

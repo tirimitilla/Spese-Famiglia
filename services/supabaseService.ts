@@ -45,16 +45,13 @@ export const getFamilyForUser = async (userId: string): Promise<{ familyId: stri
       .maybeSingle();
 
     if (error) {
-      if (error.message.includes('recursion')) {
-        throw new Error("LOOP_DETECTED");
-      }
+      console.error("Errore query membership:", error.message);
       return null;
     }
     if (!data) return null;
     return { familyId: data.family_id, isAdmin: data.is_admin };
   } catch (err) {
-    console.error("Errore recupero famiglia:", err);
-    throw err;
+    return null;
   }
 };
 
@@ -82,10 +79,9 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
       user_id: userId,
       name: name,
       is_admin: isAdmin
-    }, { onConflict: 'family_id,user_id' });
+    });
   
   if (error) {
-    console.error("Errore durante l'adesione alla famiglia:", error.message);
     throw error;
   }
 };
@@ -116,8 +112,7 @@ export const createFamilyProfile = async (profile: FamilyProfile): Promise<void>
       members: profile.members
     });
   
-  if (error) {
-    if (error.code === '23505') return; // Già esiste
+  if (error && error.code !== '23505') {
     throw error;
   }
 };
@@ -145,21 +140,18 @@ export const fetchExpenses = async (familyId: string): Promise<Expense[]> => {
 };
 
 export const addExpenseToSupabase = async (familyId: string, expense: Expense): Promise<void> => {
-  const { error } = await supabase
-    .from('expenses')
-    .insert({
-      id: expense.id,
-      family_id: familyId,
-      product: expense.product,
-      quantity: expense.quantity,
-      unit_price: expense.unitPrice,
-      total: expense.total,
-      store: expense.store,
-      date: expense.date,
-      category: expense.category,
-      member_id: expense.memberId
-    });
-  if (error) throw error;
+  await supabase.from('expenses').insert({
+    id: expense.id,
+    family_id: familyId,
+    product: expense.product,
+    quantity: expense.quantity,
+    unit_price: expense.unitPrice,
+    total: expense.total,
+    store: expense.store,
+    date: expense.date,
+    category: expense.category,
+    member_id: expense.memberId
+  });
 };
 
 export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
@@ -168,8 +160,7 @@ export const deleteExpenseFromSupabase = async (id: string): Promise<void> => {
 
 export const fetchIncomes = async (familyId: string): Promise<Income[]> => {
   const { data, error } = await supabase.from('incomes').select('*').eq('family_id', familyId).order('date', { ascending: false });
-  if (error) return [];
-  return data.map((i: any) => ({ id: i.id, source: i.source, amount: Number(i.amount), date: i.date }));
+  return (data || []).map((i: any) => ({ id: i.id, source: i.source, amount: Number(i.amount), date: i.date }));
 };
 
 export const addIncomeToSupabase = async (familyId: string, income: Income): Promise<void> => {
@@ -181,7 +172,7 @@ export const deleteIncomeFromSupabase = async (id: string): Promise<void> => {
 };
 
 export const fetchStores = async (familyId: string): Promise<Store[]> => {
-  const { data, error } = await supabase.from('stores').select('*').eq('family_id', familyId);
+  const { data } = await supabase.from('stores').select('*').eq('family_id', familyId);
   return (data || []).map((s: any) => ({ id: s.id, name: s.name }));
 };
 
@@ -190,7 +181,7 @@ export const addStoreToSupabase = async (familyId: string, store: Store): Promis
 };
 
 export const fetchCategories = async (familyId: string): Promise<CategoryDefinition[]> => {
-  const { data, error } = await supabase.from('categories').select('*').eq('family_id', familyId);
+  const { data } = await supabase.from('categories').select('*').eq('family_id', familyId);
   return (data || []).map((c: any) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color }));
 };
 
@@ -200,7 +191,7 @@ export const syncCategoriesToSupabase = async (familyId: string, categories: Cat
 };
 
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
-  const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
+  const { data } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
   return (data || []).map((r: any) => ({ id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, next_due_date: r.next_due_date, reminder_days: r.reminder_days }));
 };
 
@@ -213,7 +204,7 @@ export const deleteRecurringFromSupabase = async (id: string): Promise<void> => 
 };
 
 export const fetchShoppingList = async (familyId: string): Promise<ShoppingItem[]> => {
-  const { data, error } = await supabase.from('shopping_list').select('*').eq('family_id', familyId);
+  const { data } = await supabase.from('shopping_list').select('*').eq('family_id', familyId);
   return (data || []).map((s: any) => ({ id: s.id, product: s.product, store: s.store, completed: s.completed }));
 };
 
