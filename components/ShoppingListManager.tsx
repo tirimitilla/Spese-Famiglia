@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { ShoppingItem, Store } from '../types';
-import { ShoppingCart, Plus, Trash2, CheckSquare, Square, History, X, Store as StoreIcon, Filter } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, CheckSquare, Square, History, X, Store as StoreIcon, Filter, Sparkles } from 'lucide-react';
 
 interface ShoppingListManagerProps {
   items: ShoppingItem[];
@@ -20,23 +19,19 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
   onToggleItem,
   onDeleteItem
 }) => {
-  const [isOpen, setIsOpen] = useState(true); // Default open as it's useful
+  const [isOpen, setIsOpen] = useState(true); 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   
-  // Filter state: '' means "All Stores"
   const [activeStoreFilter, setActiveStoreFilter] = useState<string>('');
-
   const [newItemProduct, setNewItemProduct] = useState('');
   const [newItemStore, setNewItemStore] = useState(stores[0]?.name || '');
 
-  // When filter changes, update the "Add Item" store selection automatically
   useEffect(() => {
     if (activeStoreFilter) {
         setNewItemStore(activeStoreFilter);
     }
   }, [activeStoreFilter]);
 
-  // Group items by store
   const groupedItems = useMemo(() => {
     const groups: Record<string, ShoppingItem[]> = {};
     items.forEach(item => {
@@ -46,10 +41,8 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
     return groups;
   }, [items]);
 
-  // Determine which groups to display based on filter
   const displayedGroups = useMemo(() => {
       if (!activeStoreFilter) return groupedItems;
-      
       const filtered: Record<string, ShoppingItem[]> = {};
       if (groupedItems[activeStoreFilter]) {
           filtered[activeStoreFilter] = groupedItems[activeStoreFilter];
@@ -67,21 +60,30 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
 
   const handleHistorySelect = (product: string, defaultStore: string) => {
     const targetStore = activeStoreFilter || defaultStore;
-    onAddItem(product, targetStore);
+    // Evita duplicati se l'oggetto è già presente non completato
+    if (!items.some(i => i.product.toLowerCase() === product.toLowerCase() && !i.completed)) {
+        onAddItem(product, targetStore);
+    }
     setShowHistoryModal(false);
   };
 
-  // Unique products for history modal list
   const historyList = useMemo(() => {
     return Object.entries(productHistory).sort((a, b) => a[0].localeCompare(b[0]));
   }, [productHistory]);
+
+  // Suggerimenti rapidi: primi 5 prodotti dello storico non presenti in lista
+  const quickSuggestions = useMemo(() => {
+    const inList = new Set(items.filter(i => !i.completed).map(i => i.product.toLowerCase()));
+    return historyList
+        .filter(([prod]) => !inList.has(prod.toLowerCase()))
+        .slice(0, 6);
+  }, [historyList, items]);
 
   const activeCount = items.filter(i => !i.completed).length;
 
   return (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
       
-      {/* Header */}
       <div 
         className="flex justify-between items-center cursor-pointer select-none mb-5"
         onClick={() => setIsOpen(!isOpen)}
@@ -103,7 +105,6 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
       {isOpen && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-200">
           
-          {/* Store Filter Control */}
           <div className="mb-5 bg-orange-50 p-4 rounded-xl border border-orange-100">
               <label className="block text-xs font-bold text-orange-800 uppercase mb-3 flex items-center gap-1">
                   <Filter className="w-3.5 h-3.5" />
@@ -136,7 +137,28 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
               </div>
           </div>
 
-          {/* Add Form - Bigger Inputs */}
+          {/* Suggerimenti rapidi dallo storico */}
+          {quickSuggestions.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-2 px-1">
+                <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+                <span className="text-xs font-bold text-gray-400 uppercase">Suggeriti dallo storico</span>
+              </div>
+              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                {quickSuggestions.map(([prod, store]) => (
+                  <button
+                    key={prod}
+                    onClick={() => handleHistorySelect(prod, store)}
+                    className="flex-shrink-0 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 transition-all flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-orange-400" />
+                    {prod}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleAdd} className="flex flex-col gap-3 mb-6">
             <div className="flex gap-2">
                 <input
@@ -150,7 +172,7 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
                     type="button"
                     onClick={() => setShowHistoryModal(true)}
                     className="bg-orange-100 text-orange-600 px-3.5 rounded-xl hover:bg-orange-200 transition-colors border border-orange-200"
-                    title="Scegli dai prodotti acquistati in passato"
+                    title="Storico completo"
                 >
                     <History className="w-6 h-6" />
                 </button>
@@ -173,7 +195,6 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
             </div>
           </form>
 
-          {/* List - Larger text and padding */}
           <div className="space-y-5">
             {Object.keys(displayedGroups).length === 0 && (
                 <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
@@ -222,7 +243,6 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
         </div>
       )}
 
-      {/* History Modal */}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[85vh] flex flex-col">

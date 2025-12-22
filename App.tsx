@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences, RecurringExpense } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences, RecurringExpense, SyncData } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -14,12 +14,13 @@ import { RecurringManager } from './components/RecurringManager';
 import { DueExpensesAlert } from './components/DueExpensesAlert';
 import { Analytics } from './components/Analytics';
 import { AIInsight } from './components/AIInsight';
+import { DataSync } from './components/DataSync';
 import { ReceiptData } from './services/geminiService';
 import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles, ShoppingCart, Percent, Repeat, BarChart3, Bell
+  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles, ShoppingCart, Percent, Repeat, BarChart3, Bell, Share2
 } from 'lucide-react';
 
 type View = 'dashboard' | 'shopping' | 'offers' | 'recurring' | 'analytics' | 'history' | 'budget' | 'categories' | 'profile';
@@ -46,6 +47,7 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const productHistory = useMemo(() => {
@@ -59,7 +61,6 @@ function App() {
   const existingProducts = useMemo(() => Object.keys(productHistory), [productHistory]);
   const activeShoppingCount = useMemo(() => shoppingItems.filter(i => !i.completed).length, [shoppingItems]);
 
-  // Calcolo spese in scadenza
   const dueRecurring = useMemo(() => {
     const today = new Date();
     today.setHours(0,0,0,0);
@@ -108,7 +109,7 @@ function App() {
       }
     } catch (e: any) {
       console.error("Errore inizializzazione:", e);
-      setError("Errore sincronizzazione profilo. Riprova più tardi.");
+      setError("Errore sincronizzazione profilo.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -229,28 +230,16 @@ function App() {
     }
   };
 
-  // Fix: Added missing handleAddShoppingItem to handle adding products to the shopping list.
   const handleAddShoppingItem = async (product: string, store: string) => {
     if (!familyProfile) return;
-    const newItem: ShoppingItem = { 
-      id: crypto.randomUUID(), 
-      product, 
-      store, 
-      completed: false 
-    };
+    const newItem: ShoppingItem = { id: crypto.randomUUID(), product, store, completed: false };
     setShoppingItems(prev => [newItem, ...prev]);
     await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
   };
 
-  // Fix: Added missing handleAddIncome to handle recording new income entries.
   const handleAddIncome = async (source: string, amount: number, date: string) => {
     if (!familyProfile) return;
-    const newIncome: Income = { 
-      id: crypto.randomUUID(), 
-      source, 
-      amount, 
-      date 
-    };
+    const newIncome: Income = { id: crypto.randomUUID(), source, amount, date };
     setIncomes(prev => [newIncome, ...prev]);
     await SupabaseService.addIncomeToSupabase(familyProfile.id, newIncome);
   };
@@ -262,18 +251,29 @@ function App() {
     await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
   };
 
+  const handleUpdateRecurring = async (updated: RecurringExpense) => {
+    setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
+    await SupabaseService.updateRecurringInSupabase(updated);
+  };
+
   const handleProcessRecurring = async (rec: RecurringExpense) => {
-    // Trasforma la ricorrente in una spesa effettiva
     await handleAddExpense(rec.product, 1, rec.amount, rec.amount, rec.store);
-    // Aggiorna la prossima data in base alla frequenza (semplificato)
     const next = new Date(rec.nextDueDate);
     if (rec.frequency === 'mensile') next.setMonth(next.getMonth() + 1);
     else if (rec.frequency === 'settimanale') next.setDate(next.getDate() + 7);
     else if (rec.frequency === 'annuale') next.setFullYear(next.getFullYear() + 1);
-    
     const updated = { ...rec, nextDueDate: next.toISOString().split('T')[0] };
-    setRecurringExpenses(prev => prev.map(r => r.id === rec.id ? updated : r));
-    // Qui andrebbe un update su Supabase (opzionale per MVP)
+    handleUpdateRecurring(updated);
+  };
+
+  const handleImportData = (syncData: SyncData) => {
+      setExpenses(syncData.expenses);
+      setIncomes(syncData.incomes || []);
+      setStores(syncData.stores);
+      setRecurringExpenses(syncData.recurringExpenses);
+      setShoppingItems(syncData.shoppingList);
+      if (syncData.categories) setCategories(syncData.categories);
+      alert("Dati importati con successo!");
   };
 
   const MenuButton = ({ view, icon, label, badge, colorClass = "" }: { view: View, icon: any, label: string, badge?: number, colorClass?: string }) => (
@@ -402,7 +402,7 @@ function App() {
             )}
 
             {currentView === 'recurring' && (
-                <RecurringManager recurringExpenses={recurringExpenses} stores={stores} onAddRecurring={handleAddRecurring} onDeleteRecurring={(id) => SupabaseService.deleteRecurringFromSupabase(id).then(() => setRecurringExpenses(prev => prev.filter(r => r.id !== id)))} />
+                <RecurringManager recurringExpenses={recurringExpenses} stores={stores} onAddRecurring={handleAddRecurring} onUpdateRecurring={handleUpdateRecurring} onDeleteRecurring={(id) => SupabaseService.deleteRecurringFromSupabase(id).then(() => setRecurringExpenses(prev => prev.filter(r => r.id !== id)))} />
             )}
 
             {currentView === 'analytics' && (
@@ -425,7 +425,36 @@ function App() {
             )}
 
             {currentView === 'profile' && familyProfile && (
-              <FamilyManager familyProfile={familyProfile} />
+              <div className="space-y-6">
+                <FamilyManager familyProfile={familyProfile} />
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Share2 className="w-5 h-5 text-emerald-600" /> Backup & Sincronizzazione manuale
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-4">Usa questa funzione per trasferire velocemente i dati tra dispositivi diversi tramite codice.</p>
+                    <button 
+                        onClick={() => setIsSyncModalOpen(true)}
+                        className="w-full bg-emerald-50 text-emerald-700 font-bold py-3 rounded-xl border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center justify-center gap-2"
+                    >
+                        Apri Gestione Sincronizzazione
+                    </button>
+                </div>
+                {isSyncModalOpen && (
+                    <DataSync 
+                        data={{
+                            expenses,
+                            incomes,
+                            stores,
+                            recurringExpenses,
+                            shoppingList: shoppingItems,
+                            familyProfile,
+                            categories
+                        }}
+                        onImport={handleImportData}
+                        onClose={() => setIsSyncModalOpen(false)}
+                    />
+                )}
+              </div>
             )}
           </div>
         )}

@@ -216,6 +216,17 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
   });
 };
 
+export const updateRecurringInSupabase = async (item: RecurringExpense): Promise<void> => {
+  await supabase.from('recurring_expenses').update({ 
+    product: item.product, 
+    amount: item.amount, 
+    store: item.store, 
+    frequency: item.frequency, 
+    next_due_date: item.nextDueDate, 
+    reminder_days: item.reminderDays 
+  }).eq('id', item.id);
+};
+
 export const deleteRecurringFromSupabase = async (id: string): Promise<void> => {
   await supabase.from('recurring_expenses').delete().eq('id', id);
 };
