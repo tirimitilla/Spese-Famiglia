@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { StoreManager } from './components/StoreManager';
@@ -9,15 +9,16 @@ import { CategoryManager } from './components/CategoryManager';
 import { FamilyManager } from './components/FamilyManager';
 import { ReceiptScanner } from './components/ReceiptScanner';
 import { ShoppingListManager } from './components/ShoppingListManager';
+import { OffersFinder } from './components/OffersFinder';
 import { ReceiptData } from './services/geminiService';
 import { categorizeExpense } from './services/geminiService';
 import { supabase } from './src/supabaseClient';
 import * as SupabaseService from './services/supabaseService';
 import { 
-  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles
+  WalletCards, LogOut, Menu, X, Home, History, ChevronRight, Coins, Tag, Cloud, User, Loader2, Users, Database, Sparkles, ShoppingCart, Percent
 } from 'lucide-react';
 
-type View = 'dashboard' | 'history' | 'budget' | 'categories' | 'profile';
+type View = 'dashboard' | 'shopping' | 'offers' | 'history' | 'budget' | 'categories' | 'profile';
 
 function App() {
   const [session, setSession] = useState<any>(null);
@@ -29,6 +30,13 @@ function App() {
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   const [categories, setCategories] = useState<CategoryDefinition[]>(DEFAULT_CATEGORIES);
+  const [offerPrefs, setOfferPrefs] = useState<OfferPreferences>({
+    city: '',
+    selectedStores: [],
+    lastCheckDate: Date.now(),
+    hasEnabledNotifications: false
+  });
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isAIProcessing, setIsAIProcessing] = useState(false);
@@ -45,6 +53,7 @@ function App() {
   }, [expenses]);
 
   const existingProducts = useMemo(() => Object.keys(productHistory), [productHistory]);
+  const activeShoppingCount = useMemo(() => shoppingItems.filter(i => !i.completed).length, [shoppingItems]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -197,7 +206,7 @@ function App() {
       }
     } catch (err) {
       console.error("Errore durante il salvataggio dello scontrino:", err);
-      alert("Errore nel caricamento dei prodotti. Verifica che le tabelle SQL siano create.");
+      alert("Errore nel caricamento dei prodotti. Verifica la connessione.");
     } finally {
       setIsAIProcessing(false);
     }
@@ -234,12 +243,19 @@ function App() {
     }
   };
 
-  const MenuButton = ({ view, icon, label }: { view: View, icon: any, label: string }) => (
+  const MenuButton = ({ view, icon, label, badge }: { view: View, icon: any, label: string, badge?: number }) => (
     <button 
       onClick={() => { setCurrentView(view); setIsMenuOpen(false); }} 
       className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors ${currentView === view ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-gray-700 hover:bg-gray-100'}`}
     >
-      {React.cloneElement(icon, { className: 'w-6 h-6' })}
+      <div className="relative">
+        {React.cloneElement(icon, { className: 'w-6 h-6' })}
+        {badge ? (
+            <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
+                {badge}
+            </span>
+        ) : null}
+      </div>
       <span className="text-lg">{label}</span>
       {currentView === view && <ChevronRight className="w-5 h-5 ml-auto text-emerald-600" />}
     </button>
@@ -313,7 +329,10 @@ function App() {
                  <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-1">
-                 <MenuButton view="dashboard" icon={<Home />} label="Home & Aggiungi" />
+                 <MenuButton view="dashboard" icon={<Home />} label="Home" />
+                 <MenuButton view="shopping" icon={<ShoppingCart />} label="Lista Spesa" badge={activeShoppingCount} />
+                 <MenuButton view="offers" icon={<Percent />} label="Caccia Offerte" />
+                 <div className="my-2 border-t border-gray-100"></div>
                  <MenuButton view="budget" icon={<Coins />} label="Bilancio & Guadagni" />
                  <MenuButton view="history" icon={<History />} label="Storico Transazioni" />
                  <div className="my-2 border-t border-gray-100"></div>
@@ -337,20 +356,8 @@ function App() {
           <div className="animate-in fade-in duration-300">
             {currentView === 'dashboard' && (
                 <div className="space-y-6">
-                    {/* 1. SCANNER (Veloce) */}
                     <ReceiptScanner onScanComplete={handleScanComplete} />
-
-                    {/* 2. LISTA DELLA SPESA (Importante) */}
-                    <ShoppingListManager 
-                      items={shoppingItems} 
-                      stores={stores} 
-                      productHistory={productHistory} 
-                      onAddItem={handleAddShoppingItem} 
-                      onToggleItem={handleToggleShoppingItem} 
-                      onDeleteItem={handleDeleteShoppingItem} 
-                    />
-
-                    {/* 3. FORM MANUALE (Dettaglio) */}
+                    
                     <ExpenseForm 
                       stores={stores} 
                       members={[]} 
@@ -363,6 +370,30 @@ function App() {
                     <StoreManager onAddStore={(name) => SupabaseService.addStoreToSupabase(familyProfile!.id, {id: crypto.randomUUID(), name}).then(() => setStores(prev => [...prev, {id: crypto.randomUUID(), name}]))} />
                 </div>
             )}
+
+            {currentView === 'shopping' && (
+                <ShoppingListManager 
+                    items={shoppingItems} 
+                    stores={stores} 
+                    productHistory={productHistory} 
+                    onAddItem={handleAddShoppingItem} 
+                    onToggleItem={handleToggleShoppingItem} 
+                    onDeleteItem={handleDeleteShoppingItem} 
+                />
+            )}
+
+            {currentView === 'offers' && (
+                <OffersFinder 
+                    stores={stores}
+                    savedCity={offerPrefs.city}
+                    savedStores={offerPrefs.selectedStores}
+                    notificationsEnabled={offerPrefs.hasEnabledNotifications}
+                    onPreferencesChange={(city, selectedStores, hasEnabledNotifications) => {
+                        setOfferPrefs({ ...offerPrefs, city, selectedStores, hasEnabledNotifications });
+                    }}
+                />
+            )}
+
             {currentView === 'history' && (
               <ExpenseList 
                 expenses={expenses} 
@@ -374,6 +405,7 @@ function App() {
                 }} 
               />
             )}
+
             {currentView === 'budget' && (
               <IncomeManager 
                 incomes={incomes} 
@@ -382,12 +414,14 @@ function App() {
                 onDeleteIncome={(id) => SupabaseService.deleteIncomeFromSupabase(id).then(() => setIncomes(prev => prev.filter(i => i.id !== id)))} 
               />
             )}
+
             {currentView === 'categories' && (
               <CategoryManager 
                 categories={categories} 
                 onUpdateCategories={(cats) => {setCategories(cats); SupabaseService.syncCategoriesToSupabase(familyProfile!.id, cats);}} 
               />
             )}
+
             {currentView === 'profile' && familyProfile && (
               <FamilyManager familyProfile={familyProfile} />
             )}
