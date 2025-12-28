@@ -37,26 +37,34 @@ function App() {
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
-  const [initialLoading, setInitialLoading] = useState(true);
+  
+  // Loading States
+  const [isReady, setIsReady] = useState(false);
 
+  // 1. Inizializzazione Sessione e Caricamento Dati
   useEffect(() => {
     const initApp = async () => {
-      const currentUser = await SupabaseService.getCurrentUser();
-      if (currentUser) {
-        setUser(currentUser);
-        const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
-        if (memberData?.family_id) {
-          await loadFamilyData(memberData.family_id);
+      try {
+        const currentUser = await SupabaseService.getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
+          if (memberData?.family_id) {
+            await loadFamilyData(memberData.family_id);
+          }
         }
+      } catch (err) {
+        console.error("Errore inizializzazione:", err);
+      } finally {
+        setIsReady(true); // Sblocca SEMPRE l'app qui
       }
-      setInitialLoading(false);
     };
     initApp();
   }, []);
 
   const loadFamilyData = async (familyId: string) => {
     try {
-      const [profile, exps, recs, shops, strs, incs] = await Promise.all([
+      const [profileRes, exps, recs, shops, strs, incs] = await Promise.all([
         SupabaseService.getFamilyProfile(familyId),
         SupabaseService.fetchExpenses(familyId),
         SupabaseService.fetchRecurring(familyId),
@@ -65,23 +73,33 @@ function App() {
         SupabaseService.fetchIncomes(familyId)
       ]);
 
-      if (profile.data) {
+      if (profileRes.data) {
         const members = await SupabaseService.fetchFamilyMembers(familyId);
         setFamilyProfile({
-          id: profile.data.id,
-          familyName: profile.data.family_name,
+          id: profileRes.data.id,
+          familyName: profileRes.data.family_name,
           members: members,
-          createdAt: new Date(profile.data.created_at).getTime()
+          createdAt: new Date(profileRes.data.created_at).getTime()
         });
+        setExpenses(exps);
+        setRecurringExpenses(recs);
+        setShoppingList(shops);
+        setIncomes(incs);
+        if (strs && strs.length > 0) setStores(strs);
       }
-      setExpenses(exps);
-      setRecurringExpenses(recs);
-      setShoppingList(shops);
-      setIncomes(incs);
-      if (strs && strs.length > 0) setStores(strs);
     } catch (err) {
       console.error("Errore caricamento dati:", err);
     }
+  };
+
+  const handleSetupComplete = async (profile: FamilyProfile) => {
+    if (user) {
+      const { data: existingLink } = await SupabaseService.getFamilyForUser(user.id);
+      if (!existingLink) {
+        await SupabaseService.joinFamily(user.id, profile.id, user.email?.split('@')[0] || 'Utente', true);
+      }
+    }
+    await loadFamilyData(profile.id);
   };
 
   const productHistory = useMemo(() => {
@@ -91,17 +109,6 @@ function App() {
     });
     return history;
   }, [expenses]);
-
-  const handleSetupComplete = async (profile: FamilyProfile) => {
-    setFamilyProfile(profile);
-    if (user) {
-      const { data: memberExists } = await SupabaseService.getFamilyForUser(user.id);
-      if (!memberExists) {
-        await SupabaseService.joinFamily(user.id, profile.id, user.email.split('@')[0], true);
-      }
-    }
-    await loadFamilyData(profile.id);
-  };
 
   const NavItem = ({ view, icon: Icon, label, badge }: { view: View, icon: any, label: string, badge?: number }) => (
     <button
@@ -122,19 +129,23 @@ function App() {
     </button>
   );
 
-  if (initialLoading) {
+  if (!isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">Caricamento Bilancio...</p>
+          <p className="text-gray-500 font-bold tracking-tight">Sincronizzazione Account...</p>
         </div>
       </div>
     );
   }
 
   if (!user || !familyProfile) {
-    return <LoginScreen onSetupComplete={handleSetupComplete} onUserLogin={setUser} isSupabaseAuth={!!user} />;
+    return <LoginScreen 
+      onSetupComplete={handleSetupComplete} 
+      onUserLogin={(u) => { setUser(u); window.location.reload(); }} // Ricarichiamo per attivare l'init pulito
+      isSupabaseAuth={!!user} 
+    />;
   }
 
   const renderView = () => {
@@ -227,7 +238,6 @@ function App() {
               }} 
               onEdit={async (updated) => {
                 setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
-                // Nota: Aggiungere updateExpenseToSupabase se necessario
               }} 
             />
           </div>
@@ -288,8 +298,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      
-      {/* Mobile Header */}
       <header className="md:hidden bg-emerald-600 text-white p-4 flex justify-between items-center sticky top-0 z-40 shadow-md">
         <div className="flex items-center gap-2">
            <div className="bg-white/20 p-2 rounded-lg"><LayoutDashboard className="w-5 h-5" /></div>
@@ -298,19 +306,17 @@ function App() {
         <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-emerald-700 rounded-xl"><Menu className="w-6 h-6" /></button>
       </header>
 
-      {/* Desktop Sidebar / Mobile Drawer */}
       <aside className={`fixed inset-0 z-50 md:relative md:flex md:w-72 bg-white border-r border-gray-100 flex-col shadow-2xl md:shadow-none transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 flex justify-between items-center border-b border-gray-50">
           <div className="flex items-center gap-3">
              <div className="bg-emerald-600 p-2.5 rounded-2xl shadow-lg shadow-emerald-100 text-white"><LayoutDashboard className="w-6 h-6" /></div>
              <div>
                <h1 className="font-black text-gray-800 tracking-tighter">{familyProfile.familyName}</h1>
-               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{user?.email.split('@')[0]}</p>
+               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{user?.email?.split('@')[0] || 'Utente'}</p>
              </div>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-gray-400"><X className="w-6 h-6" /></button>
         </div>
-
         <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
           <NavItem view="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavItem view="bilancio" icon={Wallet} label="Bilancio" />
@@ -321,47 +327,24 @@ function App() {
           <NavItem view="offerte" icon={Percent} label="Caccia Offerte" />
           <NavItem view="famiglia" icon={Users} label="Famiglia & Negozi" />
         </nav>
-
         <div className="p-4 border-t border-gray-50 space-y-2">
-          <button 
-            onClick={async () => { await SupabaseService.signOut(); window.location.reload(); }}
-            className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold text-sm hover:bg-red-50 rounded-xl transition-colors"
-          >
+          <button onClick={async () => { await SupabaseService.signOut(); window.location.reload(); }} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold text-sm hover:bg-red-50 rounded-xl transition-colors">
             <LogOut className="w-5 h-5" /> Esci dall'App
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full pb-24 md:pb-8">
-        <div className="mb-6 hidden md:block">
-           <h2 className="text-3xl font-black text-gray-800 capitalize tracking-tighter">{activeView.replace('spese', 'Storico Spese')}</h2>
-           <p className="text-gray-400 text-sm font-medium">Gestisci il tuo risparmio familiare in tempo reale.</p>
-        </div>
         {renderView()}
       </main>
 
-      {/* Mobile Bottom Navigation Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around items-center p-3 z-40 pb-6 safe-area-bottom shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-         <button onClick={() => setActiveView('dashboard')} className={`p-3 rounded-2xl transition-all ${activeView === 'dashboard' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}>
-            <LayoutDashboard className="w-6 h-6" />
-         </button>
-         <button onClick={() => setActiveView('spese')} className={`p-3 rounded-2xl transition-all ${activeView === 'spese' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}>
-            <Receipt className="w-6 h-6" />
-         </button>
-         <button onClick={() => setActiveView('shopping')} className={`relative p-3 rounded-2xl transition-all ${activeView === 'shopping' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}>
-            <ShoppingCart className="w-6 h-6" />
-            {shoppingList.filter(i => !i.completed).length > 0 && <span className="absolute top-2 right-2 w-4 h-4 bg-orange-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-white">{shoppingList.filter(i => !i.completed).length}</span>}
-         </button>
-         <button onClick={() => setActiveView('bilancio')} className={`p-3 rounded-2xl transition-all ${activeView === 'bilancio' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}>
-            <Wallet className="w-6 h-6" />
-         </button>
-         <button onClick={() => setActiveView('ricorrenti')} className={`p-3 rounded-2xl transition-all ${activeView === 'ricorrenti' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}>
-            <Repeat className="w-6 h-6" />
-         </button>
+         <button onClick={() => setActiveView('dashboard')} className={`p-3 rounded-2xl transition-all ${activeView === 'dashboard' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}><LayoutDashboard className="w-6 h-6" /></button>
+         <button onClick={() => setActiveView('spese')} className={`p-3 rounded-2xl transition-all ${activeView === 'spese' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}><Receipt className="w-6 h-6" /></button>
+         <button onClick={() => setActiveView('shopping')} className={`relative p-3 rounded-2xl transition-all ${activeView === 'shopping' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}><ShoppingCart className="w-6 h-6" />{shoppingList.filter(i => !i.completed).length > 0 && <span className="absolute top-2 right-2 w-4 h-4 bg-orange-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-white">{shoppingList.filter(i => !i.completed).length}</span>}</button>
+         <button onClick={() => setActiveView('bilancio')} className={`p-3 rounded-2xl transition-all ${activeView === 'bilancio' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}><Wallet className="w-6 h-6" /></button>
+         <button onClick={() => setActiveView('ricorrenti')} className={`p-3 rounded-2xl transition-all ${activeView === 'ricorrenti' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}><Repeat className="w-6 h-6" /></button>
       </div>
-
-      {/* Backdrop for mobile drawer */}
       {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300" />}
     </div>
   );
