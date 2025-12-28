@@ -1,5 +1,4 @@
-
-import { supabase } from '../src/supabaseClient';
+import { supabase } from '../supabaseClient';
 import { Expense, Income, Store, RecurringExpense, ShoppingItem, FamilyProfile, Member } from '../types';
 
 /* --- AUTHENTICATION --- */
@@ -26,12 +25,13 @@ export const getCurrentUser = async () => {
 
 /* --- FAMILY & MEMBERS --- */
 export const getFamilyForUser = async (userId: string) => {
-  // Query pulita per trovare la famiglia associata all'ID utente
   const { data, error } = await supabase
     .from('members')
     .select('family_id')
     .eq('user_id', userId)
     .maybeSingle();
+  
+  if (error) console.error("Errore recupero associazione famiglia:", error);
   return { data, error };
 };
 
@@ -50,7 +50,37 @@ export const fetchFamilyMembers = async (familyId: string) => {
   }));
 };
 
+export const createFamilyAndJoin = async (userId: string, familyName: string, userEmail: string) => {
+  const { data: existing } = await getFamilyForUser(userId);
+  if (existing?.family_id) return existing.family_id;
+
+  const familyId = crypto.randomUUID();
+  
+  const { error: famError } = await supabase.from('families').insert({
+    id: familyId,
+    family_name: familyName,
+    created_at: new Date().toISOString()
+  });
+
+  if (famError) throw famError;
+
+  const { error: memError } = await supabase.from('members').insert({
+    user_id: userId,
+    family_id: familyId,
+    name: userEmail.split('@')[0],
+    is_admin: true,
+    color: 'bg-emerald-500'
+  });
+
+  if (memError) throw memError;
+
+  return familyId;
+};
+
 export const joinFamily = async (userId: string, familyId: string, name: string, isAdmin: boolean = false) => {
+  const { data: existing } = await getFamilyForUser(userId);
+  if (existing) return { data: existing, error: null };
+
   return await supabase.from('members').insert({
     user_id: userId,
     family_id: familyId,

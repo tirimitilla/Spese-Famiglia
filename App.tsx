@@ -31,24 +31,24 @@ function App() {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Data States
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   
-  // Loading States
   const [isReady, setIsReady] = useState(false);
 
-  // 1. Inizializzazione Sessione e Caricamento Dati
+  // 1. Inizializzazione Sessione e Caricamento Automatico
   useEffect(() => {
     const initApp = async () => {
       try {
         const currentUser = await SupabaseService.getCurrentUser();
         if (currentUser) {
           setUser(currentUser);
+          // Cerchiamo l'associazione esistente User <-> Family
           const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
+          
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
           }
@@ -56,7 +56,7 @@ function App() {
       } catch (err) {
         console.error("Errore inizializzazione:", err);
       } finally {
-        setIsReady(true); // Sblocca SEMPRE l'app qui
+        setIsReady(true);
       }
     };
     initApp();
@@ -93,12 +93,7 @@ function App() {
   };
 
   const handleSetupComplete = async (profile: FamilyProfile) => {
-    if (user) {
-      const { data: existingLink } = await SupabaseService.getFamilyForUser(user.id);
-      if (!existingLink) {
-        await SupabaseService.joinFamily(user.id, profile.id, user.email?.split('@')[0] || 'Utente', true);
-      }
-    }
+    // Chiamato dopo creazione o join manuale
     await loadFamilyData(profile.id);
   };
 
@@ -134,16 +129,23 @@ function App() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 font-bold tracking-tight">Sincronizzazione Account...</p>
+          <p className="text-gray-500 font-bold tracking-tight">Accesso in corso...</p>
         </div>
       </div>
     );
   }
 
+  // Se loggato ma senza famiglia, chiediamo di crearla o unirsi
   if (!user || !familyProfile) {
     return <LoginScreen 
       onSetupComplete={handleSetupComplete} 
-      onUserLogin={(u) => { setUser(u); window.location.reload(); }} // Ricarichiamo per attivare l'init pulito
+      onUserLogin={(u) => { 
+        setUser(u);
+        // Cerchiamo di nuovo la famiglia dopo il login per evitare la schermata setup se già esiste
+        SupabaseService.getFamilyForUser(u.id).then(({data}) => {
+          if (data?.family_id) loadFamilyData(data.family_id);
+        });
+      }} 
       isSupabaseAuth={!!user} 
     />;
   }
