@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { FamilyProfile } from '../types';
 import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '../services/supabaseService';
@@ -6,10 +7,11 @@ import { supabase } from '../src/supabaseClient';
 
 interface LoginScreenProps {
   onSetupComplete: (profile: FamilyProfile) => void;
+  onUserLogin?: (user: any) => void;
   isSupabaseAuth?: boolean;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSupabaseAuth }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUserLogin, isSupabaseAuth }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -31,7 +33,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
       if (isRegistering) {
         const { data, error: signUpErr } = await signUpWithEmail(email, password);
         if (signUpErr) {
-            if (signUpErr.message.includes("User already registered") || signUpErr.status === 422) {
+            if (signUpErr.message.toLowerCase().includes("user already registered") || signUpErr.status === 422) {
                 setError("Questa email è già registrata. Prova ad accedere invece di registrarti.");
                 setLoading(false);
                 return;
@@ -41,12 +43,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
         
         if (data.session) {
           setSuccess("Registrazione completata! Accesso in corso...");
+          if (onUserLogin) onUserLogin(data.user);
         } else if (data.user) {
           setSuccess("Account creato! Controlla la tua email per confermare l'indirizzo.");
           setTimeout(() => setIsRegistering(false), 3000);
         }
       } else {
-        const { error: signInErr } = await signInWithEmail(email, password);
+        const { data, error: signInErr } = await signInWithEmail(email, password);
         if (signInErr) {
           if (signInErr.message.includes("Invalid login credentials")) {
              throw new Error("Email o password errati. Riprova.");
@@ -55,6 +58,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
             throw new Error("L'email non è stata confermata. Controlla la tua posta.");
           }
           throw signInErr;
+        }
+        if (data.user && onUserLogin) {
+          onUserLogin(data.user);
         }
       }
     } catch (err: any) {
@@ -76,18 +82,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
     }
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!familyName) return;
     setLoading(true);
-    const newProfile: FamilyProfile = {
-      id: crypto.randomUUID(),
-      familyName,
-      members: [],
-      createdAt: Date.now()
-    };
-    onSetupComplete(newProfile);
-    setLoading(false);
+    try {
+      const familyId = crypto.randomUUID();
+      const newProfile: FamilyProfile = {
+        id: familyId,
+        familyName,
+        members: [],
+        createdAt: Date.now()
+      };
+      
+      // Persistiamo su Supabase
+      const { error: createErr } = await supabase.from('families').insert({
+        id: familyId,
+        family_name: familyName,
+        created_at: new Date().toISOString()
+      });
+
+      if (createErr) throw createErr;
+
+      onSetupComplete(newProfile);
+    } catch (err: any) {
+      setError("Errore creazione gruppo: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleJoinSubmit = async (e: React.FormEvent) => {
@@ -102,12 +124,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
         .eq('id', familyIdToJoin.trim())
         .single();
 
-      if (fetchErr || !profile) throw new Error("Codice famiglia non trovato.");
+      if (fetchErr || !profile) throw new Error("Codice famiglia non trovato. Verifica di averlo copiato correttamente.");
 
       onSetupComplete({
         id: profile.id,
         familyName: profile.family_name,
-        members: profile.members || [],
+        members: [], // Verranno caricati da App.tsx
         createdAt: new Date(profile.created_at).getTime()
       });
     } catch (err: any) {
@@ -122,23 +144,42 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-gray-100 animate-in fade-in zoom-in">
           <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Configurazione Famiglia</h2>
-          <p className="text-gray-500 text-sm text-center mb-6">Sei loggato correttamente! Ora crea un gruppo o unisciti a uno esistente.</p>
+          <p className="text-gray-500 text-sm text-center mb-6">Accesso effettuato! Ora crea un gruppo familiare o unisciti a uno esistente.</p>
           <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
-            <button onClick={() => setMode('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Crea</button>
+            <button onClick={() => setMode('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Crea Nuovo</button>
             <button onClick={() => setMode('join')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Unisciti</button>
           </div>
           {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4 border border-red-100 flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {error}</div>}
           {mode === 'create' ? (
             <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <input type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="Nome del gruppo (es. Famiglia Rossi)" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500" required />
-              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Inizia ora'}</button>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 ml-1">Nome del Gruppo</label>
+                <input type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="es. Famiglia Rossi" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 bg-gray-50 shadow-sm" required />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md transition-all hover:bg-emerald-700 active:scale-95 flex items-center justify-center">
+                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Crea e Inizia'}
+              </button>
             </form>
           ) : (
             <form onSubmit={handleJoinSubmit} className="space-y-4">
-              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm" required />
-              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Entra nel gruppo'}</button>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 ml-1">Codice ID Famiglia</label>
+                <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID qui" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm bg-gray-50 shadow-sm" required />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md transition-all hover:bg-blue-700 active:scale-95 flex items-center justify-center">
+                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Entra nel Gruppo'}
+              </button>
             </form>
           )}
+          <button 
+            onClick={async () => {
+              await supabase.auth.signOut();
+              window.location.reload();
+            }}
+            className="w-full mt-6 text-gray-400 text-xs font-medium hover:text-gray-600"
+          >
+            Usa un altro account
+          </button>
         </div>
       </div>
     );

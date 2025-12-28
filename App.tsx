@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences, RecurringExpense, SyncData, CustomField } from './types';
+import { DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, Income, CategoryDefinition, ShoppingItem, OfferPreferences, RecurringExpense, SyncData, CustomField, Member } from './types';
 import * as SupabaseService from './services/supabaseService';
 import { LoginScreen } from './components/LoginScreen';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -10,16 +11,62 @@ import { StoreManager } from './components/StoreManager';
 import { RecurringManager } from './components/RecurringManager';
 import { DueExpensesAlert } from './components/DueExpensesAlert';
 import { ShoppingListManager } from './components/ShoppingListManager';
+import { Loader2 } from 'lucide-react';
 
 function App() {
+  const [user, setUser] = useState<any>(null);
   const [familyProfile, setFamilyProfile] = useState<FamilyProfile | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // Deriva lo storico dei prodotti dalle spese reali per alimentare la Shopping List
+  // 1. Controllo sessione all'avvio
+  useEffect(() => {
+    const checkSession = async () => {
+      const currentUser = await SupabaseService.getCurrentUser();
+      if (currentUser) {
+        setUser(currentUser);
+        const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
+        if (memberData?.family_id) {
+          await loadFamilyData(memberData.family_id);
+        }
+      }
+      setInitialLoading(false);
+    };
+    checkSession();
+  }, []);
+
+  const loadFamilyData = async (familyId: string) => {
+    try {
+      const [profile, exps, recs, shops, strs] = await Promise.all([
+        SupabaseService.getFamilyProfile(familyId),
+        SupabaseService.fetchExpenses(familyId),
+        SupabaseService.fetchRecurring(familyId),
+        SupabaseService.fetchShoppingList(familyId),
+        SupabaseService.fetchStores(familyId)
+      ]);
+
+      if (profile.data) {
+        const members = await SupabaseService.fetchFamilyMembers(familyId);
+        setFamilyProfile({
+          id: profile.data.id,
+          familyName: profile.data.family_name,
+          members: members,
+          createdAt: new Date(profile.data.created_at).getTime()
+        });
+      }
+      setExpenses(exps);
+      setRecurringExpenses(recs);
+      setShoppingList(shops);
+      if (strs && strs.length > 0) setStores(strs);
+    } catch (err) {
+      console.error("Errore caricamento dati:", err);
+    }
+  };
+
   const productHistory = useMemo(() => {
     const history: Record<string, string> = {};
     [...expenses].reverse().forEach(exp => {
@@ -74,17 +121,56 @@ function App() {
     await SupabaseService.deleteRecurringFromSupabase(id);
   };
 
-  if (!familyProfile) {
-    return <LoginScreen onSetupComplete={setFamilyProfile} isSupabaseAuth={false} />;
+  const handleSetupComplete = async (profile: FamilyProfile) => {
+    // Quando l'utente crea o si unisce a una famiglia
+    setFamilyProfile(profile);
+    if (user) {
+      // Se l'utente è nuovo, lo aggiungiamo come membro
+      const { data: memberExists } = await SupabaseService.getFamilyForUser(user.id);
+      if (!memberExists) {
+        await SupabaseService.joinFamily(user.id, profile.id, user.email.split('@')[0], true);
+      }
+    }
+    await loadFamilyData(profile.id);
+  };
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user || !familyProfile) {
+    return <LoginScreen 
+      onSetupComplete={handleSetupComplete} 
+      onUserLogin={setUser}
+      isSupabaseAuth={!!user} 
+    />;
   }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <header className="bg-emerald-600 text-white p-6 shadow-lg mb-8">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold">{familyProfile.familyName}</h1>
-          <div className="text-sm bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm">
-             ID: <code className="font-mono">{familyProfile.id.split('-')[0]}</code>
+          <div>
+            <h1 className="text-2xl font-bold">{familyProfile.familyName}</h1>
+            <p className="text-xs text-emerald-100 opacity-80">{user?.email}</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-sm bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm hidden sm:block">
+               ID: <code className="font-mono">{familyProfile.id.split('-')[0]}</code>
+            </div>
+            <button 
+              onClick={async () => {
+                await SupabaseService.signOut();
+                window.location.reload();
+              }}
+              className="text-xs font-bold bg-red-500/20 hover:bg-red-500/40 px-3 py-1 rounded-lg transition-colors"
+            >
+              Esci
+            </button>
           </div>
         </div>
       </header>
