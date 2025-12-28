@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ShoppingItem, Store } from '../types';
-import { ShoppingCart, Plus, Trash2, CheckSquare, Square, History, X, Store as StoreIcon, Filter, Sparkles } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, History, X, Store as StoreIcon, Filter, Sparkles, CheckSquare, Square, Eraser } from 'lucide-react';
 
 interface ShoppingListManagerProps {
   items: ShoppingItem[];
   stores: Store[];
-  productHistory: Record<string, string>; // Map: Product Name -> Last Store Name
+  productHistory: Record<string, string>;
   onAddItem: (product: string, store: string) => void;
   onToggleItem: (id: string) => void;
   onDeleteItem: (id: string) => void;
@@ -21,10 +21,18 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(true); 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  
   const [activeStoreFilter, setActiveStoreFilter] = useState<string>('');
   const [newItemProduct, setNewItemProduct] = useState('');
   const [newItemStore, setNewItemStore] = useState(stores[0]?.name || '');
+
+  // Quando l'utente inizia a scrivere un prodotto, suggeriamo l'ultimo negozio usato se disponibile
+  const handleProductInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setNewItemProduct(val);
+    if (productHistory[val]) {
+        setNewItemStore(productHistory[val]);
+    }
+  };
 
   useEffect(() => {
     if (activeStoreFilter) {
@@ -32,23 +40,27 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
     }
   }, [activeStoreFilter]);
 
-  const groupedItems = useMemo(() => {
-    const groups: Record<string, ShoppingItem[]> = {};
-    items.forEach(item => {
-      if (!groups[item.store]) groups[item.store] = [];
-      groups[item.store].push(item);
-    });
-    return groups;
-  }, [items]);
+  const { activeItems, completedItems } = useMemo(() => {
+    const filtered = activeStoreFilter 
+      ? items.filter(i => i.store === activeStoreFilter)
+      : items;
+    
+    return {
+      activeItems: filtered.filter(i => !i.completed),
+      completedItems: filtered.filter(i => i.completed)
+    };
+  }, [items, activeStoreFilter]);
 
-  const displayedGroups = useMemo(() => {
-      if (!activeStoreFilter) return groupedItems;
-      const filtered: Record<string, ShoppingItem[]> = {};
-      if (groupedItems[activeStoreFilter]) {
-          filtered[activeStoreFilter] = groupedItems[activeStoreFilter];
-      }
-      return filtered;
-  }, [groupedItems, activeStoreFilter]);
+  const historyList = useMemo(() => {
+    return Object.entries(productHistory).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [productHistory]);
+
+  const quickSuggestions = useMemo(() => {
+    const inList = new Set(items.filter(i => !i.completed).map(i => i.product.toLowerCase()));
+    return historyList
+        .filter(([prod]) => !inList.has(prod.toLowerCase()))
+        .slice(0, 10);
+  }, [historyList, items]);
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,222 +71,216 @@ export const ShoppingListManager: React.FC<ShoppingListManagerProps> = ({
   };
 
   const handleHistorySelect = (product: string, defaultStore: string) => {
-    const targetStore = activeStoreFilter || defaultStore;
-    // Evita duplicati se l'oggetto è già presente non completato
-    if (!items.some(i => i.product.toLowerCase() === product.toLowerCase() && !i.completed)) {
-        onAddItem(product, targetStore);
-    }
+    const targetStore = activeStoreFilter || defaultStore || stores[0]?.name;
+    onAddItem(product, targetStore);
     setShowHistoryModal(false);
   };
 
-  const historyList = useMemo(() => {
-    return Object.entries(productHistory).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [productHistory]);
-
-  // Suggerimenti rapidi: primi 5 prodotti dello storico non presenti in lista
-  const quickSuggestions = useMemo(() => {
-    const inList = new Set(items.filter(i => !i.completed).map(i => i.product.toLowerCase()));
-    return historyList
-        .filter(([prod]) => !inList.has(prod.toLowerCase()))
-        .slice(0, 6);
-  }, [historyList, items]);
-
-  const activeCount = items.filter(i => !i.completed).length;
+  const handleClearCompleted = () => {
+    if (confirm("Vuoi rimuovere tutti i prodotti segnati come acquistati?")) {
+        completedItems.forEach(item => onDeleteItem(item.id));
+    }
+  };
 
   return (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
-      
-      <div 
-        className="flex justify-between items-center cursor-pointer select-none mb-5"
-        onClick={() => setIsOpen(!isOpen)}
-      >
+      <div className="flex justify-between items-center mb-5">
         <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-          <ShoppingCart className="w-5 h-5 text-orange-500" />
+          <ShoppingCart className="h-5 w-5 text-orange-500" />
           Lista della Spesa
-          {activeCount > 0 && (
-            <span className="bg-orange-100 text-orange-700 text-xs font-bold px-2.5 py-1 rounded-full">
-              {activeCount} da prendere
+          {activeItems.length > 0 && (
+            <span className="bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+              {activeItems.length}
             </span>
           )}
         </h3>
-        <button className="text-orange-500 hover:text-orange-700 text-sm font-semibold py-1 px-2">
-          {isOpen ? 'Chiudi' : 'Apri'}
-        </button>
+        <div className="flex gap-2">
+            {completedItems.length > 0 && (
+                <button 
+                    onClick={handleClearCompleted}
+                    className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                    title="Svuota acquistati"
+                >
+                    <Eraser className="w-5 h-5" />
+                </button>
+            )}
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className="text-orange-500 hover:text-orange-700 text-sm font-semibold px-2"
+            >
+                {isOpen ? 'Nascondi' : 'Mostra'}
+            </button>
+        </div>
       </div>
 
       {isOpen && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-200">
           
-          <div className="mb-5 bg-orange-50 p-4 rounded-xl border border-orange-100">
-              <label className="block text-xs font-bold text-orange-800 uppercase mb-3 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5" />
-                  Visualizza prodotti per:
-              </label>
-              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                  <button
-                      onClick={() => setActiveStoreFilter('')}
-                      className={`whitespace-nowrap px-4 py-2.5 rounded-full text-sm font-semibold transition-colors border shadow-sm ${
-                          activeStoreFilter === '' 
-                          ? 'bg-orange-500 text-white border-orange-600' 
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300'
-                      }`}
-                  >
-                      Tutti i Negozi
-                  </button>
-                  {stores.map(store => (
-                      <button
-                          key={store.id}
-                          onClick={() => setActiveStoreFilter(store.name)}
-                          className={`whitespace-nowrap px-4 py-2.5 rounded-full text-sm font-semibold transition-colors border shadow-sm ${
-                              activeStoreFilter === store.name
-                              ? 'bg-orange-500 text-white border-orange-600' 
-                              : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300'
-                          }`}
-                      >
-                          {store.name}
-                      </button>
-                  ))}
-              </div>
-          </div>
-
-          {/* Suggerimenti rapidi dallo storico */}
+          {/* Suggerimenti dallo Storico */}
           {quickSuggestions.length > 0 && (
-            <div className="mb-4">
+            <div className="mb-6">
               <div className="flex items-center gap-1.5 mb-2 px-1">
-                <Sparkles className="w-3.5 h-3.5 text-orange-400" />
-                <span className="text-xs font-bold text-gray-400 uppercase">Suggeriti dallo storico</span>
+                <Sparkles className="h-3.5 w-3.5 text-orange-400" />
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Più acquistati</span>
               </div>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                 {quickSuggestions.map(([prod, store]) => (
                   <button
                     key={prod}
                     onClick={() => handleHistorySelect(prod, store)}
-                    className="flex-shrink-0 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 transition-all flex items-center gap-1.5"
+                    className="flex-shrink-0 bg-orange-50/50 border border-orange-100 hover:border-orange-400 hover:bg-white px-3 py-2 rounded-xl text-sm font-medium text-gray-700 transition-all flex flex-col items-start gap-0.5 whitespace-nowrap"
                   >
-                    <Plus className="w-3.5 h-3.5 text-orange-400" />
-                    {prod}
+                    <div className="flex items-center gap-1">
+                        <Plus className="h-3 w-3 text-orange-500" />
+                        {prod}
+                    </div>
+                    <span className="text-[9px] text-gray-400 uppercase font-bold">{store}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          <form onSubmit={handleAdd} className="flex flex-col gap-3 mb-6">
+          <div className="mb-5 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              <button
+                  onClick={() => setActiveStoreFilter('')}
+                  className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                      activeStoreFilter === '' 
+                      ? 'bg-orange-500 text-white border-orange-600 shadow-sm' 
+                      : 'bg-white text-gray-400 border-gray-200 hover:text-orange-500'
+                  }`}
+              >
+                  TUTTI
+              </button>
+              {stores.map(s => (
+                  <button
+                      key={s.id}
+                      onClick={() => setActiveStoreFilter(s.name)}
+                      className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                          activeStoreFilter === s.name
+                          ? 'bg-orange-500 text-white border-orange-600 shadow-sm' 
+                          : 'bg-white text-gray-400 border-gray-200 hover:text-orange-500'
+                      }`}
+                  >
+                      {s.name.toUpperCase()}
+                  </button>
+              ))}
+          </div>
+
+          <form onSubmit={handleAdd} className="flex flex-col gap-3 mb-8">
             <div className="flex gap-2">
                 <input
                     type="text"
                     value={newItemProduct}
-                    onChange={(e) => setNewItemProduct(e.target.value)}
-                    placeholder={activeStoreFilter ? `Cosa serve al ${activeStoreFilter}?` : "Cosa serve?"}
-                    className="flex-1 rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all shadow-sm"
+                    onChange={handleProductInputChange}
+                    placeholder="Es. Latte, Uova..."
+                    className="flex-1 rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-orange-500 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                 />
                 <button
                     type="button"
                     onClick={() => setShowHistoryModal(true)}
-                    className="bg-orange-100 text-orange-600 px-3.5 rounded-xl hover:bg-orange-200 transition-colors border border-orange-200"
+                    className="bg-gray-100 text-gray-400 px-3.5 rounded-xl hover:bg-orange-50 hover:text-orange-500 transition-colors border border-gray-200"
                     title="Storico completo"
                 >
-                    <History className="w-6 h-6" />
+                    <History className="h-6 w-6" />
                 </button>
             </div>
             <div className="flex gap-2">
                 <select
                     value={newItemStore}
                     onChange={(e) => setNewItemStore(e.target.value)}
-                    className="flex-1 rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none shadow-sm appearance-none"
+                    className="flex-1 rounded-xl border border-gray-300 bg-gray-50 p-3.5 text-base focus:border-orange-500 outline-none appearance-none"
                 >
                     {stores.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 </select>
                 <button
                     type="submit"
                     disabled={!newItemProduct.trim()}
-                    className="bg-orange-500 text-white px-5 rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 shadow-md active:scale-95"
+                    className="bg-orange-500 text-white px-8 rounded-xl font-bold hover:bg-orange-600 transition-all disabled:opacity-50 active:scale-95 shadow-lg"
                 >
-                    <Plus className="w-6 h-6" />
+                    Aggiungi
                 </button>
             </div>
           </form>
 
-          <div className="space-y-5">
-            {Object.keys(displayedGroups).length === 0 && (
-                <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-500 italic">
-                        {activeStoreFilter 
-                            ? `Nessun prodotto in lista per ${activeStoreFilter}.` 
-                            : "La lista della spesa è vuota."}
-                    </p>
+          <div className="space-y-3">
+            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-2">Da Acquistare</h4>
+            {activeItems.map(item => (
+                <div key={item.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm group">
+                    <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => onToggleItem(item.id)}>
+                        <div className="text-orange-500">
+                           <Square className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <span className="text-lg font-semibold text-gray-800">{item.product}</span>
+                            <div className="flex items-center gap-1 text-[10px] text-gray-400 font-bold uppercase mt-0.5">
+                                <StoreIcon className="w-3 h-3" /> {item.store}
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={() => onDeleteItem(item.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors">
+                        <Trash2 className="w-5 h-5" />
+                    </button>
+                </div>
+            ))}
+
+            {activeItems.length === 0 && (
+                <div className="text-center py-12 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                    <p className="text-sm text-gray-400 italic">Lista vuota.</p>
                 </div>
             )}
 
-            {Object.entries(displayedGroups).map(([storeName, storeItems]) => (
-              <div key={storeName} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden animate-in fade-in">
-                <div className="bg-orange-50 px-4 py-2.5 text-sm font-bold text-orange-800 flex items-center gap-2 border-b border-orange-100">
-                  <StoreIcon className="w-4 h-4" /> {storeName}
-                </div>
-                <div className="divide-y divide-gray-100">
-                    {(storeItems as ShoppingItem[]).map(item => (
-                        <div key={item.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors active:bg-gray-100">
-                            <div 
-                                className="flex items-center gap-3 cursor-pointer flex-1"
-                                onClick={() => onToggleItem(item.id)}
-                            >
-                                {item.completed ? (
-                                    <CheckSquare className="w-6 h-6 text-gray-300 flex-shrink-0" />
-                                ) : (
-                                    <Square className="w-6 h-6 text-orange-500 flex-shrink-0" />
-                                )}
-                                <span className={`text-lg font-medium ${item.completed ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                                    {item.product}
-                                </span>
+            {completedItems.length > 0 && (
+                <div className="mt-10 pt-6 border-t border-gray-100">
+                    <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-3">Nel carrello</h4>
+                    <div className="space-y-2">
+                        {completedItems.map(item => (
+                            <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50/50 rounded-xl border border-gray-100 opacity-70">
+                                <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => onToggleItem(item.id)}>
+                                    <CheckSquare className="w-6 h-6 text-emerald-500" />
+                                    <span className="text-base font-medium text-gray-400 line-through">{item.product}</span>
+                                </div>
+                                <button onClick={() => onDeleteItem(item.id)} className="p-2 text-gray-300 hover:text-red-400">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
                             </div>
-                            <button 
-                                onClick={() => onDeleteItem(item.id)}
-                                className="text-gray-300 hover:text-red-500 p-2 -mr-2"
-                            >
-                                <Trash2 className="w-5 h-5" />
-                            </button>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
-              </div>
-            ))}
+            )}
           </div>
-
         </div>
       )}
 
       {showHistoryModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[85vh] flex flex-col">
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 animate-in fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden">
                 <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-                    <h3 className="font-bold text-lg text-gray-800">Storico Prodotti</h3>
-                    <button onClick={() => setShowHistoryModal(false)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                        <X className="w-5 h-5 text-gray-600" />
+                    <h3 className="font-bold text-lg text-gray-800">Storico Acquisti</h3>
+                    <button onClick={() => setShowHistoryModal(false)} className="p-2 bg-gray-100 rounded-full">
+                        <X className="h-5 w-5 text-gray-600" />
                     </button>
                 </div>
                 <div className="p-2 overflow-y-auto flex-1">
-                    <div className="space-y-1">
-                        {historyList.map(([prod, lastStore]) => (
-                            <button
-                                key={prod}
-                                onClick={() => handleHistorySelect(prod, lastStore)}
-                                className="w-full text-left px-5 py-4 hover:bg-orange-50 rounded-xl flex justify-between items-center group border-b border-gray-50 last:border-0"
-                            >
-                                <span className="text-base font-medium text-gray-800">{prod}</span>
-                                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-md group-hover:bg-white">
-                                    {activeStoreFilter ? '' : lastStore}
-                                </span>
-                            </button>
-                        ))}
-                        {historyList.length === 0 && (
-                            <p className="text-center text-gray-500 py-8">Nessun acquisto registrato.</p>
-                        )}
-                    </div>
+                    {historyList.map(([prod, lastStore]) => (
+                        <button
+                            key={prod}
+                            onClick={() => handleHistorySelect(prod, lastStore)}
+                            className="w-full text-left px-5 py-4 hover:bg-orange-50 rounded-2xl flex justify-between items-center group transition-all"
+                        >
+                            <div>
+                                <div className="text-base font-bold text-gray-800">{prod}</div>
+                                <div className="text-[10px] text-gray-400 font-bold uppercase mt-1 flex items-center gap-1">
+                                    <StoreIcon className="w-3 h-3" /> {lastStore}
+                                </div>
+                            </div>
+                            <Plus className="w-5 h-5 text-gray-300 group-hover:text-orange-500" />
+                        </button>
+                    ))}
                 </div>
             </div>
         </div>
       )}
-
     </div>
   );
 };

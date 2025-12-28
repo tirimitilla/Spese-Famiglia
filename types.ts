@@ -3,29 +3,28 @@ export interface Member {
   id: string;
   name: string;
   color: string;
-  // Campi opzionali per integrazione futura con tabella 'family_members' e Auth
   userId?: string; 
   isAdmin?: boolean;
 }
 
 export interface FamilyProfile {
-  id: string; // ID univoco del documento Firebase (il "Codice Famiglia")
+  id: string;
   familyName: string;
   members: Member[];
-  googleSheetUrl?: string; // Manteniamo opzionale se vuoi ancora usarlo per backup
+  googleSheetUrl?: string;
   createdAt?: number;
 }
 
 export interface CategoryDefinition {
   id: string;
   name: string;
-  icon: string; // Nome dell'icona (es. "shopping-cart")
-  color: string; // Classe Tailwind o codice hex (es. "bg-emerald-100 text-emerald-600")
+  icon: string;
+  color: string;
 }
 
 export interface Income {
   id: string;
-  source: string; // Fonte (es. Stipendio)
+  source: string;
   amount: number;
   date: string;
 }
@@ -53,6 +52,11 @@ export interface AIAnalysisResponse {
 
 export type Frequency = 'settimanale' | 'mensile' | 'annuale';
 
+export interface CustomField {
+  label: string;
+  value: string;
+}
+
 export interface RecurringExpense {
   id: string;
   product: string;
@@ -60,7 +64,8 @@ export interface RecurringExpense {
   store: string;
   frequency: Frequency;
   nextDueDate: string;
-  reminderDays: number; // Giorni di preavviso prima della scadenza
+  reminderDays: number;
+  customFields?: CustomField[]; // Nuovo campo per informazioni personalizzate
 }
 
 export interface ShoppingItem {
@@ -84,7 +89,6 @@ export interface OfferPreferences {
   hasEnabledNotifications: boolean;
 }
 
-// Payload for Sync (Legacy/Backup)
 export interface SyncData {
   expenses: Expense[];
   incomes: Income[];
@@ -92,7 +96,7 @@ export interface SyncData {
   recurringExpenses: RecurringExpense[];
   shoppingList: ShoppingItem[];
   familyProfile: FamilyProfile;
-  categories?: CategoryDefinition[]; // Aggiunto per sync
+  categories?: CategoryDefinition[];
   timestamp: number;
 }
 

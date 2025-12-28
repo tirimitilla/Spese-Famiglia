@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FamilyProfile } from '../types';
-import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '../services/supabaseService';
 import { supabase } from '../src/supabaseClient';
 
@@ -30,29 +30,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
     try {
       if (isRegistering) {
         const { data, error: signUpErr } = await signUpWithEmail(email, password);
-        if (signUpErr) throw signUpErr;
+        if (signUpErr) {
+            if (signUpErr.message.includes("User already registered") || signUpErr.status === 422) {
+                setError("Questa email è già registrata. Prova ad accedere invece di registrarti.");
+                setLoading(false);
+                return;
+            }
+            throw signUpErr;
+        }
         
         if (data.session) {
-          // Se la conferma email è OFF su Supabase, abbiamo già la sessione
           setSuccess("Registrazione completata! Accesso in corso...");
         } else if (data.user) {
-          // Se la conferma email è ON, l'utente deve controllare la posta
           setSuccess("Account creato! Controlla la tua email per confermare l'indirizzo.");
-          // Opzionalmente torniamo alla modalità login dopo qualche secondo
           setTimeout(() => setIsRegistering(false), 3000);
         }
       } else {
         const { error: signInErr } = await signInWithEmail(email, password);
         if (signInErr) {
+          if (signInErr.message.includes("Invalid login credentials")) {
+             throw new Error("Email o password errati. Riprova.");
+          }
           if (signInErr.message.includes("Email not confirmed")) {
-            throw new Error("L'email non è stata confermata. Controlla la tua posta o disabilita la conferma su Supabase.");
+            throw new Error("L'email non è stata confermata. Controlla la tua posta.");
           }
           throw signInErr;
         }
       }
     } catch (err: any) {
       console.error("Auth Error:", err);
-      setError(err.message || "Errore durante l'autenticazione. Verifica i dati inseriti.");
+      setError(err.message || "Errore durante l'autenticazione.");
     } finally {
       setLoading(false);
     }
@@ -89,9 +96,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
     setLoading(true);
     setError('');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Accedi prima per unirti a una famiglia.");
-      
       const { data: profile, error: fetchErr } = await supabase
         .from('families')
         .select('*')
@@ -131,7 +135,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
             </form>
           ) : (
             <form onSubmit={handleJoinSubmit} className="space-y-4">
-              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID (es. UUID)" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm" required />
+              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID" className="w-full rounded-xl border border-gray-300 p-4 outline-none focus:border-emerald-500 font-mono text-sm" required />
               <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Entra nel gruppo'}</button>
             </form>
           )}
@@ -147,7 +151,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
           <Sparkles className="w-10 h-10 text-white" />
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Spese Famiglia AI</h2>
-        <p className="text-gray-500 mb-8">Tieni traccia del bilancio in tempo reale.</p>
+        <p className="text-gray-500 mb-8">Gestione bilancio in tempo reale.</p>
 
         {authMode === 'google' ? (
           <div className="space-y-4">
@@ -179,7 +183,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, isSup
               </div>
             </div>
             
-            {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs border border-red-100 flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {error}</div>}
+            {error && (
+                <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs border border-red-100 flex flex-col gap-2">
+                    <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> 
+                        <span>{error}</span>
+                    </div>
+                    {error.includes("già registrata") && (
+                        <button 
+                            type="button" 
+                            onClick={() => { setIsRegistering(false); setError(''); }}
+                            className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-2 mt-1"
+                        >
+                            Passa ad Accedi <ArrowRight className="w-3 h-3" />
+                        </button>
+                    )}
+                </div>
+            )}
             {success && <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-xs border border-emerald-100 flex items-start gap-2"><CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> {success}</div>}
             
             <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:bg-emerald-700 active:scale-95">
