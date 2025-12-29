@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { Member, FamilyProfile } from '../types';
-import { Users, UserPlus, Copy, CheckCircle, Shield, User, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Copy, CheckCircle, Shield, User, Loader2, Lock } from 'lucide-react';
 import { fetchFamilyMembers } from '../services/supabaseService';
 
 interface FamilyManagerProps {
@@ -31,12 +32,15 @@ export const FamilyManager: React.FC<FamilyManagerProps> = ({ familyProfile }) =
   return (
     <div className="space-y-6 animate-in fade-in">
       {/* Intestazione */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center relative overflow-hidden">
+        <div className="absolute top-4 right-4 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1">
+          <Lock className="w-3 h-3" /> SPAZIO PRIVATO
+        </div>
         <div className="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
           <Users className="w-8 h-8 text-emerald-600" />
         </div>
         <h2 className="text-2xl font-bold text-gray-800">{familyProfile.familyName}</h2>
-        <p className="text-gray-500 text-sm mt-1">Gestisci i membri della tua famiglia</p>
+        <p className="text-gray-500 text-sm mt-1">Questo spazio è visibile solo ai membri del gruppo.</p>
       </div>
 
       {/* Sezione Invito */}
@@ -46,7 +50,7 @@ export const FamilyManager: React.FC<FamilyManagerProps> = ({ familyProfile }) =
           <h3 className="text-lg font-bold">Invita un Familiare</h3>
         </div>
         <p className="text-emerald-50 text-sm mb-4">
-          Condividi questo codice con i tuoi familiari. Una volta scaricata l'app, potranno inserirlo per unirsi al tuo gruppo.
+          Condividi questo codice con le persone che vuoi far entrare in <strong>questo specifico spazio</strong>.
         </p>
         <div className="bg-white/20 p-4 rounded-xl flex items-center justify-between gap-3 backdrop-blur-sm border border-white/20">
           <code className="text-sm font-mono break-all flex-1">{familyProfile.id}</code>
@@ -91,6 +95,13 @@ export const FamilyManager: React.FC<FamilyManagerProps> = ({ familyProfile }) =
             ))
           )}
         </div>
+      </div>
+
+      <div className="p-4 bg-gray-100 rounded-xl text-center">
+        <p className="text-[10px] text-gray-400 uppercase font-bold leading-tight">
+          Protezione Dati: Le tue spese sono criptate e isolate tramite Family ID.<br/>
+          Nessun utente esterno a questo gruppo può accedere alle tue informazioni.
+        </p>
       </div>
     </div>
   );

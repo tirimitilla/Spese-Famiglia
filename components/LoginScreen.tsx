@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { FamilyProfile } from '../types';
-import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Loader2, Mail, Lock, LogIn, UserPlus, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import * as SupabaseService from '../services/supabaseService';
 import { supabase } from '../supabaseClient';
 
@@ -32,6 +33,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
         const { data, error: signUpErr } = await SupabaseService.signUpWithEmail(email, password);
         if (signUpErr) throw signUpErr;
         setSuccess("Account creato! Verifica la tua email.");
+        setIsRegistering(false);
       } else {
         const { data, error: signInErr } = await SupabaseService.signInWithEmail(email, password);
         if (signInErr) throw signInErr;
@@ -77,7 +79,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
       const user = await SupabaseService.getCurrentUser();
       if (!user) throw new Error("Utente non autenticato.");
       const { data: profile } = await supabase.from('families').select('*').eq('id', familyIdToJoin.trim()).single();
-      if (!profile) throw new Error("Gruppo non trovato.");
+      if (!profile) throw new Error("Gruppo non trovato. Controlla il codice.");
       await SupabaseService.joinFamily(user.id, profile.id, user.email?.split('@')[0] || 'Utente');
       onSetupComplete({ id: profile.id, familyName: profile.family_name, members: [] });
     } catch (err: any) {
@@ -91,23 +93,38 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-gray-100">
-          <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Configurazione Famiglia</h2>
+          <div className="flex justify-center mb-4">
+             <div className="bg-emerald-100 p-3 rounded-2xl">
+                <ShieldCheck className="w-8 h-8 text-emerald-600" />
+             </div>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Spazio Riservato</h2>
+          <p className="text-gray-500 text-xs text-center mb-6">Crea un nuovo gruppo privato o unisciti a uno esistente con un codice.</p>
+          
           <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
-            <button onClick={() => setMode('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Crea</button>
+            <button onClick={() => setMode('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg ${mode === 'create' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Nuovo Gruppo</button>
             <button onClick={() => setMode('join')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Unisciti</button>
           </div>
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4">{error}</div>}
+          
+          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4 flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {error}</div>}
+          
           {mode === 'create' ? (
             <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <input type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="Nome Gruppo (es. Famiglia Rossi)" className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50" required />
-              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md">
-                {loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Crea e Inizia'}
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">Nome dello Spazio</label>
+                <input type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="Es. Casa Mia, Ufficio..." className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50 focus:ring-2 focus:ring-emerald-100 outline-none" required />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-md hover:bg-emerald-700 transition-colors">
+                {loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Inizia Ora'}
               </button>
             </form>
           ) : (
             <form onSubmit={handleJoinSubmit} className="space-y-4">
-              <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla il codice ID" className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50 font-mono text-sm" required />
-              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">Codice Invito</label>
+                <input type="text" value={familyIdToJoin} onChange={(e) => setFamilyIdToJoin(e.target.value)} placeholder="Incolla l'ID ricevuto" className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50 font-mono text-sm focus:ring-2 focus:ring-blue-100 outline-none" required />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-md hover:bg-blue-700 transition-colors">
                 {loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 'Entra nel Gruppo'}
               </button>
             </form>
@@ -123,26 +140,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
         <div className="bg-emerald-500 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
           <Sparkles className="w-10 h-10 text-white" />
         </div>
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-8">Spese Famiglia AI</h2>
+        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Spese Famiglia AI</h2>
+        <p className="text-gray-500 text-sm mb-8">Gestione spese intelligente e 100% privata.</p>
+
+        {success && <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-xs mb-4 flex items-center gap-2 justify-center font-bold"><CheckCircle2 className="w-4 h-4" /> {success}</div>}
 
         {authMode === 'google' ? (
           <div className="space-y-4">
-            <button onClick={handleGoogleLogin} disabled={loading} className="w-full flex items-center justify-center gap-4 bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold">
+            <button onClick={handleGoogleLogin} disabled={loading} className="w-full flex items-center justify-center gap-4 bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold hover:bg-gray-50 transition-all shadow-sm">
               {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" className="w-6 h-6" />} Accedi con Google
             </button>
-            <button onClick={() => setAuthMode('email')} className="text-emerald-600 font-bold text-sm">Usa Email e Password</button>
+            <button onClick={() => setAuthMode('email')} className="text-emerald-600 font-bold text-sm">Oppure usa Email</button>
           </div>
         ) : (
           <form onSubmit={handleEmailAuth} className="space-y-4 text-left">
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-gray-300 p-4" placeholder="Email" required />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-gray-300 p-4" placeholder="Password" minLength={6} required />
-            {error && <div className="text-red-500 text-xs">{error}</div>}
-            <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl">
-              {isRegistering ? 'Crea Account' : 'Accedi'}
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50" placeholder="La tua Email" required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-gray-300 p-4 bg-gray-50" placeholder="Scegli una Password" minLength={6} required />
+            {error && <div className="text-red-500 text-xs font-bold text-center">{error}</div>}
+            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors shadow-md">
+              {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isRegistering ? 'Crea Account Gratuito' : 'Entra')}
             </button>
-            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-xs text-emerald-600 font-bold w-full text-center">
-              {isRegistering ? 'Hai un account? Accedi' : 'Nuovo utente? Registrati'}
-            </button>
+            <div className="flex flex-col gap-2">
+              <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-xs text-emerald-600 font-bold w-full text-center">
+                {isRegistering ? 'Hai già un account? Accedi' : 'Nuovo utente? Registrati qui'}
+              </button>
+              <button type="button" onClick={() => setAuthMode('google')} className="text-xs text-gray-400 w-full text-center">Torna al login Google</button>
+            </div>
           </form>
         )}
       </div>
