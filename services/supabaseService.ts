@@ -19,20 +19,33 @@ export const signOut = async () => {
 };
 
 export const getCurrentUser = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return user;
+  } catch (err) {
+    return null;
+  }
 };
 
 /* --- FAMILY & MEMBERS --- */
 export const getFamilyForUser = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('members')
-    .select('family_id')
-    .eq('user_id', userId)
-    .maybeSingle();
-  
-  if (error) console.error("Errore recupero associazione famiglia:", error);
-  return { data, error };
+  try {
+    const { data, error } = await supabase
+      .from('members')
+      .select('family_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error("Dettaglio errore recupero associazione famiglia:", error.message || error, error.details, error.hint);
+      return { data: null, error };
+    }
+    return { data, error: null };
+  } catch (err: any) {
+    console.error("Eccezione durante il recupero della famiglia:", err?.message || err);
+    return { data: null, error: err };
+  }
 };
 
 export const getFamilyProfile = async (familyId: string) => {
@@ -40,7 +53,11 @@ export const getFamilyProfile = async (familyId: string) => {
 };
 
 export const fetchFamilyMembers = async (familyId: string) => {
-  const { data } = await supabase.from('members').select('*').eq('family_id', familyId);
+  const { data, error } = await supabase.from('members').select('*').eq('family_id', familyId);
+  if (error) {
+    console.error("Errore recupero membri:", error.message);
+    return [];
+  }
   return (data || []).map((m: any) => ({
     id: m.id,
     name: m.name,
@@ -51,7 +68,8 @@ export const fetchFamilyMembers = async (familyId: string) => {
 };
 
 export const createFamilyAndJoin = async (userId: string, familyName: string, userEmail: string) => {
-  const { data: existing } = await getFamilyForUser(userId);
+  const { data: existing, error: checkError } = await getFamilyForUser(userId);
+  if (checkError) throw new Error(`Impossibile verificare famiglie esistenti: ${checkError.message}`);
   if (existing?.family_id) return existing.family_id;
 
   const familyId = crypto.randomUUID();
@@ -62,7 +80,10 @@ export const createFamilyAndJoin = async (userId: string, familyName: string, us
     created_at: new Date().toISOString()
   });
 
-  if (famError) throw famError;
+  if (famError) {
+    console.error("Errore inserimento famiglia:", famError.message);
+    throw famError;
+  }
 
   const { error: memError } = await supabase.from('members').insert({
     user_id: userId,
@@ -72,7 +93,10 @@ export const createFamilyAndJoin = async (userId: string, familyName: string, us
     color: 'bg-emerald-500'
   });
 
-  if (memError) throw memError;
+  if (memError) {
+    console.error("Errore inserimento membro:", memError.message);
+    throw memError;
+  }
 
   return familyId;
 };
@@ -92,7 +116,11 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
 
 /* --- DATA FETCHING --- */
 export const fetchExpenses = async (familyId: string) => {
-  const { data } = await supabase.from('expenses').select('*').eq('family_id', familyId).order('date', { ascending: false });
+  const { data, error } = await supabase.from('expenses').select('*').eq('family_id', familyId).order('date', { ascending: false });
+  if (error) {
+    console.error("Errore recupero spese:", error.message);
+    return [];
+  }
   return (data || []).map((e: any) => ({
     id: e.id, product: e.product, quantity: e.quantity, unitPrice: e.unit_price, total: e.total,
     store: e.store, date: e.date, category: e.category, memberId: e.member_id
@@ -112,7 +140,11 @@ export const deleteExpenseFromSupabase = async (id: string) => {
 };
 
 export const fetchIncomes = async (familyId: string) => {
-  const { data } = await supabase.from('incomes').select('*').eq('family_id', familyId);
+  const { data, error } = await supabase.from('incomes').select('*').eq('family_id', familyId);
+  if (error) {
+    console.error("Errore recupero entrate:", error.message);
+    return [];
+  }
   return (data || []).map((i: any) => ({ id: i.id, source: i.source, amount: i.amount, date: i.date }));
 };
 
@@ -127,7 +159,11 @@ export const deleteIncomeFromSupabase = async (id: string) => {
 };
 
 export const fetchStores = async (familyId: string) => {
-  const { data } = await supabase.from('stores').select('*').eq('family_id', familyId);
+  const { data, error } = await supabase.from('stores').select('*').eq('family_id', familyId);
+  if (error) {
+    console.error("Errore recupero negozi:", error.message);
+    return [];
+  }
   return data || [];
 };
 
@@ -136,7 +172,11 @@ export const addStoreToSupabase = async (familyId: string, store: Store) => {
 };
 
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
-  const { data } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
+  const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
+  if (error) {
+    console.error("Errore recupero scadenze:", error.message);
+    return [];
+  }
   return (data || []).map((r: any) => ({ 
     id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, 
     nextDueDate: r.next_due_date, reminderDays: r.reminder_days, customFields: r.custom_fields || [] 
@@ -162,7 +202,11 @@ export const deleteRecurringFromSupabase = async (id: string) => {
 };
 
 export const fetchShoppingList = async (familyId: string) => {
-  const { data } = await supabase.from('shopping_list').select('*').eq('family_id', familyId);
+  const { data, error } = await supabase.from('shopping_list').select('*').eq('family_id', familyId);
+  if (error) {
+    console.error("Errore recupero lista spesa:", error.message);
+    return [];
+  }
   return (data || []).map((s: any) => ({ id: s.id, product: s.product, store: s.store, completed: s.completed }));
 };
 
