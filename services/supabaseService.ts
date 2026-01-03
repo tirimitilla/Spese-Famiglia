@@ -165,22 +165,24 @@ export const fetchRecurring = async (familyId: string): Promise<RecurringExpense
   if (error) return [];
   return (data || []).map((r: any) => ({ 
     id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, 
-    nextDueDate: r.next_due_date, reminderDays: r.reminder_days, customFields: r.custom_fields || [] 
+    nextDueDate: r.next_due_date, reminder_days: r.reminder_days, customFields: r.custom_fields || [] 
   }));
 };
 
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense) => {
+  // Prepariamo un payload pulito
   const payload: any = { 
     id: item.id, 
     family_id: familyId, 
     product: item.product, 
-    amount: item.amount, 
+    amount: Number(item.amount), 
     store: item.store, 
     frequency: item.frequency, 
     next_due_date: item.nextDueDate, 
-    reminder_days: item.reminderDays 
+    reminder_days: Number(item.reminderDays) || 0
   };
   
+  // Aggiungiamo i campi personalizzati solo se popolati, per retrocompatibilità schema
   if (item.customFields && item.customFields.length > 0) {
     payload.custom_fields = item.customFields;
   }
@@ -188,7 +190,7 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
   const { error } = await supabase.from('recurring_expenses').insert(payload);
   
   if (error) {
-    console.error("DEBUG - Errore Supabase Dettagliato:", error);
+    console.error("DEBUG - Errore Tecnico Supabase:", error);
     throw error;
   }
 };
@@ -196,18 +198,21 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
 export const updateRecurringInSupabase = async (item: RecurringExpense) => {
   const payload: any = { 
     product: item.product, 
-    amount: item.amount, 
+    amount: Number(item.amount), 
     store: item.store, 
     frequency: item.frequency, 
     next_due_date: item.nextDueDate, 
-    reminder_days: item.reminderDays,
-    custom_fields: item.customFields || []
+    reminder_days: Number(item.reminderDays) || 0
   };
+
+  if (item.customFields) {
+    payload.custom_fields = item.customFields;
+  }
 
   const { error } = await supabase.from('recurring_expenses').update(payload).eq('id', item.id);
   
   if (error) {
-    console.error("DEBUG - Errore Supabase Update:", error);
+    console.error("DEBUG - Errore Tecnico Supabase Update:", error);
     throw error;
   }
 };

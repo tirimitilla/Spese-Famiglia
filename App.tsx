@@ -318,15 +318,16 @@ function App() {
             recurringExpenses={recurringExpenses} stores={stores}
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
-              // Optimistic update
+              // Ottimismo UI
               setRecurringExpenses(prev => [...prev, newItem]);
               try {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
               } catch (error: any) {
-                console.error("Errore salvataggio:", error);
-                // Adesso mostriamo l'errore REALE che restituisce il database
-                alert("Errore Supabase: " + (error.message || "Errore sconosciuto durante il salvataggio."));
-                // Revert optimistic update
+                console.error("Errore salvataggio ricorrente:", error);
+                // Alert più dettagliato per capire COSA esattamente fallisce
+                const technicalDetail = error.message || error.details || "Errore sconosciuto";
+                alert(`ERRORE SUPABASE: ${technicalDetail}\n\nAssicurati che la tabella 'recurring_expenses' esista e che le policy RLS permettano l'inserimento.`);
+                // Rollback UI
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
             }}
