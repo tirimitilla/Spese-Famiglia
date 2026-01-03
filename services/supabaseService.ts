@@ -170,7 +170,6 @@ export const fetchRecurring = async (familyId: string): Promise<RecurringExpense
 };
 
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense) => {
-  // Prepariamo i dati filtrando customFields se è un array vuoto (per evitare problemi con JSONB null)
   const payload: any = { 
     id: item.id, 
     family_id: familyId, 
@@ -189,7 +188,7 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
   const { error } = await supabase.from('recurring_expenses').insert(payload);
   
   if (error) {
-    console.error("Errore tecnico Supabase (Insert):", error);
+    console.error("DEBUG - Errore Supabase Dettagliato:", error);
     throw error;
   }
 };
@@ -208,7 +207,7 @@ export const updateRecurringInSupabase = async (item: RecurringExpense) => {
   const { error } = await supabase.from('recurring_expenses').update(payload).eq('id', item.id);
   
   if (error) {
-    console.error("Errore tecnico Supabase (Update):", error);
+    console.error("DEBUG - Errore Supabase Update:", error);
     throw error;
   }
 };

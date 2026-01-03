@@ -318,12 +318,15 @@ function App() {
             recurringExpenses={recurringExpenses} stores={stores}
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
+              // Optimistic update
               setRecurringExpenses(prev => [...prev, newItem]);
               try {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
               } catch (error: any) {
                 console.error("Errore salvataggio:", error);
-                alert("Errore Supabase: " + (error.message || "Impossibile salvare i dati. Controlla la connessione o i permessi."));
+                // Adesso mostriamo l'errore REALE che restituisce il database
+                alert("Errore Supabase: " + (error.message || "Errore sconosciuto durante il salvataggio."));
+                // Revert optimistic update
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
             }}
