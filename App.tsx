@@ -37,7 +37,26 @@ function App() {
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   
+  // Stato per le preferenze delle offerte
+  const [offerPreferences, setOfferPreferences] = useState({
+    city: '',
+    selectedStores: [] as string[],
+    notificationsEnabled: false,
+  });
+
   const [isReady, setIsReady] = useState(false);
+
+  // Caricamento preferenze offerte da localStorage
+  useEffect(() => {
+    try {
+      const savedPrefs = localStorage.getItem('familyAppOfferPreferences');
+      if (savedPrefs) {
+        setOfferPreferences(JSON.parse(savedPrefs));
+      }
+    } catch(e) {
+      console.error("Failed to load offer preferences", e);
+    }
+  }, []);
 
   // 1. Inizializzazione Sessione e Caricamento Automatico
   useEffect(() => {
@@ -95,6 +114,16 @@ function App() {
   const handleSetupComplete = async (profile: FamilyProfile) => {
     // Chiamato dopo creazione o join manuale
     await loadFamilyData(profile.id);
+  };
+
+  const handlePreferencesChange = (city: string, selectedStores: string[], notificationsEnabled: boolean) => {
+    const newPrefs = { city, selectedStores, notificationsEnabled };
+    setOfferPreferences(newPrefs);
+    try {
+      localStorage.setItem('familyAppOfferPreferences', JSON.stringify(newPrefs));
+    } catch(e) {
+      console.error("Failed to save offer preferences", e);
+    }
   };
 
   const productHistory = useMemo(() => {
@@ -265,23 +294,54 @@ function App() {
             recurringExpenses={recurringExpenses} stores={stores}
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
+              // Optimistic update
               setRecurringExpenses(prev => [...prev, newItem]);
-              await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
+              try {
+                await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
+              } catch (error) {
+                console.error(error);
+                alert("Errore: la spesa ricorrente non è stata salvata. Assicurati che le policy RLS in Supabase siano corrette.");
+                // Revert optimistic update
+                setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
+              }
             }}
             onUpdateRecurring={async (updated) => {
+              const originalState = [...recurringExpenses];
               setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
-              await SupabaseService.updateRecurringInSupabase(updated);
+              try {
+                await SupabaseService.updateRecurringInSupabase(updated);
+              } catch (error) {
+                console.error(error);
+                alert("Errore: la spesa ricorrente non è stata aggiornata.");
+                setRecurringExpenses(originalState); // Revert on failure
+              }
             }}
             onDeleteRecurring={async (id) => {
+              const itemToDelete = recurringExpenses.find(r => r.id === id);
+              if (!itemToDelete) return;
+              // Optimistic update
               setRecurringExpenses(prev => prev.filter(r => r.id !== id));
-              await SupabaseService.deleteRecurringFromSupabase(id);
+              try {
+                await SupabaseService.deleteRecurringFromSupabase(id);
+              } catch(error) {
+                console.error(error);
+                alert("Errore: la spesa ricorrente non è stata eliminata.");
+                // Revert optimistic update
+                setRecurringExpenses(prev => [...prev, itemToDelete]);
+              }
             }}
           />
         );
       case 'analisi':
         return <Analytics expenses={expenses} />;
       case 'offerte':
-        return <OffersFinder stores={stores} savedCity="" savedStores={[]} notificationsEnabled={false} onPreferencesChange={() => {}} />;
+        return <OffersFinder 
+          stores={stores} 
+          savedCity={offerPreferences.city} 
+          savedStores={offerPreferences.selectedStores} 
+          notificationsEnabled={offerPreferences.notificationsEnabled} 
+          onPreferencesChange={handlePreferencesChange} 
+        />;
       case 'famiglia':
         return (
           <div className="space-y-6">

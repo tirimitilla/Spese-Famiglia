@@ -184,21 +184,33 @@ export const fetchRecurring = async (familyId: string): Promise<RecurringExpense
 };
 
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense) => {
-  return await supabase.from('recurring_expenses').insert({ 
+  const { error } = await supabase.from('recurring_expenses').insert({ 
     id: item.id, family_id: familyId, product: item.product, amount: item.amount, store: item.store, 
     frequency: item.frequency, next_due_date: item.nextDueDate, reminder_days: item.reminderDays, custom_fields: item.customFields 
   });
+  if (error) {
+    console.error("Errore salvataggio spesa ricorrente:", error.message, error.details);
+    throw new Error(`Impossibile salvare la spesa ricorrente: ${error.message}`);
+  }
 };
 
 export const updateRecurringInSupabase = async (item: RecurringExpense) => {
-  return await supabase.from('recurring_expenses').update({ 
+  const { error } = await supabase.from('recurring_expenses').update({ 
     product: item.product, amount: item.amount, store: item.store, frequency: item.frequency, 
     next_due_date: item.nextDueDate, reminder_days: item.reminderDays, custom_fields: item.customFields 
   }).eq('id', item.id);
+  if (error) {
+    console.error("Errore aggiornamento spesa ricorrente:", error.message, error.details);
+    throw new Error(`Impossibile aggiornare la spesa ricorrente: ${error.message}`);
+  }
 };
 
 export const deleteRecurringFromSupabase = async (id: string) => {
-  return await supabase.from('recurring_expenses').delete().eq('id', id);
+  const { error } = await supabase.from('recurring_expenses').delete().eq('id', id);
+  if (error) {
+    console.error("Errore eliminazione spesa ricorrente:", error.message, error.details);
+    throw new Error(`Impossibile eliminare la spesa ricorrente: ${error.message}`);
+  }
 };
 
 export const fetchShoppingList = async (familyId: string) => {
