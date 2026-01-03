@@ -37,7 +37,6 @@ function App() {
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [stores, setStores] = useState<Store[]>(DEFAULT_STORES);
   
-  // Stato per le preferenze delle offerte
   const [offerPreferences, setOfferPreferences] = useState({
     city: '',
     selectedStores: [] as string[],
@@ -46,7 +45,6 @@ function App() {
 
   const [isReady, setIsReady] = useState(false);
 
-  // Caricamento preferenze offerte da localStorage
   useEffect(() => {
     try {
       const savedPrefs = localStorage.getItem('familyAppOfferPreferences');
@@ -58,16 +56,13 @@ function App() {
     }
   }, []);
 
-  // 1. Inizializzazione Sessione e Caricamento Automatico
   useEffect(() => {
     const initApp = async () => {
       try {
         const currentUser = await SupabaseService.getCurrentUser();
         if (currentUser) {
           setUser(currentUser);
-          // Cerchiamo l'associazione esistente User <-> Family
           const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
-          
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
           }
@@ -112,7 +107,6 @@ function App() {
   };
 
   const handleSetupComplete = async (profile: FamilyProfile) => {
-    // Chiamato dopo creazione o join manuale
     await loadFamilyData(profile.id);
   };
 
@@ -164,13 +158,11 @@ function App() {
     );
   }
 
-  // Se loggato ma senza famiglia, chiediamo di crearla o unirsi
   if (!user || !familyProfile) {
     return <LoginScreen 
       onSetupComplete={handleSetupComplete} 
       onUserLogin={(u) => { 
         setUser(u);
-        // Cerchiamo di nuovo la famiglia dopo il login per evitare la schermata setup se già esiste
         SupabaseService.getFamilyForUser(u.id).then(({data}) => {
           if (data?.family_id) loadFamilyData(data.family_id);
         });
@@ -192,7 +184,11 @@ function App() {
                   store: data.store || 'Negozio', date: new Date().toISOString(), category: item.category || 'Altro'
                 };
                 setExpenses(prev => [newExp, ...prev]);
-                await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
+                try {
+                  await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
+                } catch (e: any) {
+                  console.error(e);
+                }
               }
             }} />
             <DueExpensesAlert 
@@ -229,19 +225,31 @@ function App() {
             onAddItem={async (p, s) => {
               const newItem = { id: crypto.randomUUID(), product: p, store: s, completed: false };
               setShoppingList(prev => [...prev, newItem]);
-              await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
+              try {
+                await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
+              } catch (e) {
+                console.error(e);
+              }
             }}
             onToggleItem={async (id) => {
               const item = shoppingList.find(i => i.id === id);
               if (item) {
                 const updated = { ...item, completed: !item.completed };
                 setShoppingList(prev => prev.map(i => i.id === id ? updated : i));
-                await SupabaseService.updateShoppingItemInSupabase(updated);
+                try {
+                  await SupabaseService.updateShoppingItemInSupabase(updated);
+                } catch (e) {
+                  console.error(e);
+                }
               }
             }}
             onDeleteItem={async (id) => {
               setShoppingList(prev => prev.filter(i => i.id !== id));
-              await SupabaseService.deleteShoppingItemFromSupabase(id);
+              try {
+                await SupabaseService.deleteShoppingItemFromSupabase(id);
+              } catch (e) {
+                console.error(e);
+              }
             }}
           />
         );
@@ -257,7 +265,11 @@ function App() {
                   date: new Date().toISOString(), category: 'Altro'
                 };
                 setExpenses(prev => [newExp, ...prev]);
-                await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
+                try {
+                  await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
+                } catch (e: any) {
+                  alert("Errore salvataggio spesa: " + e.message);
+                }
               }} 
               isAnalyzing={false}
             />
@@ -265,7 +277,11 @@ function App() {
               expenses={expenses} stores={stores} 
               onDelete={async (id) => {
                 setExpenses(prev => prev.filter(e => e.id !== id));
-                await SupabaseService.deleteExpenseFromSupabase(id);
+                try {
+                  await SupabaseService.deleteExpenseFromSupabase(id);
+                } catch (e) {
+                  console.error(e);
+                }
               }} 
               onEdit={async (updated) => {
                 setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
@@ -280,11 +296,19 @@ function App() {
             onAddIncome={async (s, a, d) => {
               const newInc = { id: crypto.randomUUID(), source: s, amount: a, date: d };
               setIncomes(prev => [...prev, newInc]);
-              await SupabaseService.addIncomeToSupabase(familyProfile.id, newInc);
+              try {
+                await SupabaseService.addIncomeToSupabase(familyProfile.id, newInc);
+              } catch (e) {
+                console.error(e);
+              }
             }}
             onDeleteIncome={async (id) => {
               setIncomes(prev => prev.filter(i => i.id !== id));
-              await SupabaseService.deleteIncomeFromSupabase(id);
+              try {
+                await SupabaseService.deleteIncomeFromSupabase(id);
+              } catch (e) {
+                console.error(e);
+              }
             }}
           />
         );
@@ -294,14 +318,12 @@ function App() {
             recurringExpenses={recurringExpenses} stores={stores}
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
-              // Optimistic update
               setRecurringExpenses(prev => [...prev, newItem]);
               try {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
-              } catch (error) {
-                console.error(error);
-                alert("Errore: la spesa ricorrente non è stata salvata. Assicurati che le policy RLS in Supabase siano corrette.");
-                // Revert optimistic update
+              } catch (error: any) {
+                console.error("Errore salvataggio:", error);
+                alert("Errore Supabase: " + (error.message || "Impossibile salvare i dati. Controlla la connessione o i permessi."));
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
             }}
@@ -310,23 +332,21 @@ function App() {
               setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
               try {
                 await SupabaseService.updateRecurringInSupabase(updated);
-              } catch (error) {
+              } catch (error: any) {
                 console.error(error);
-                alert("Errore: la spesa ricorrente non è stata aggiornata.");
-                setRecurringExpenses(originalState); // Revert on failure
+                alert("Errore aggiornamento: " + error.message);
+                setRecurringExpenses(originalState);
               }
             }}
             onDeleteRecurring={async (id) => {
               const itemToDelete = recurringExpenses.find(r => r.id === id);
               if (!itemToDelete) return;
-              // Optimistic update
               setRecurringExpenses(prev => prev.filter(r => r.id !== id));
               try {
                 await SupabaseService.deleteRecurringFromSupabase(id);
-              } catch(error) {
+              } catch(error: any) {
                 console.error(error);
-                alert("Errore: la spesa ricorrente non è stata eliminata.");
-                // Revert optimistic update
+                alert("Errore eliminazione: " + error.message);
                 setRecurringExpenses(prev => [...prev, itemToDelete]);
               }
             }}
@@ -349,7 +369,11 @@ function App() {
             <StoreManager onAddStore={async (name) => {
               const newStore = { id: crypto.randomUUID(), name };
               setStores(prev => [...prev, newStore]);
-              await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
+              try {
+                await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
+              } catch (e) {
+                console.error(e);
+              }
             }} />
           </div>
         );
