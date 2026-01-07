@@ -57,9 +57,9 @@ function App() {
     }
   }, []);
 
+  // Inizializzazione Sessione e Listener Auth
   useEffect(() => {
-    setIsReady(false);
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const handleAuthChange = async (session: any) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
 
@@ -79,10 +79,29 @@ function App() {
         setFamilyProfile(null);
       }
       setIsReady(true);
-    });
+    };
+
+    const initAuth = async () => {
+      setIsReady(false);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await handleAuthChange(session);
+      } catch (err) {
+        console.error("Errore durante getSession:", err);
+        setIsReady(true);
+      }
+
+      const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        await handleAuthChange(session);
+      });
+
+      return authListener;
+    };
+
+    const authInit = initAuth();
 
     return () => {
-      authListener.subscription.unsubscribe();
+      authInit.then(res => res?.subscription.unsubscribe());
     };
   }, []);
 
@@ -168,6 +187,7 @@ function App() {
     );
   }
 
+  // Se non c'è utente o se l'utente è loggato ma non ha ancora un profilo famiglia
   if (!user || !familyProfile) {
     return <LoginScreen 
       onSetupComplete={handleSetupComplete} 
@@ -334,9 +354,7 @@ function App() {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
               } catch (error: any) {
                 console.error("Errore salvataggio ricorrente:", error);
-                // Alert più dettagliato per capire COSA esattamente fallisce
-                const technicalDetail = error.message || error.details || "Errore sconosciuto";
-                alert(`ERRORE SUPABASE: ${technicalDetail}\n\nAssicurati che la tabella 'recurring_expenses' esista e che le policy RLS permettano l'inserimento.`);
+                alert(`ERRORE SUPABASE: ${error.message || "Errore sconosciuto"}`);
                 // Rollback UI
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
@@ -390,7 +408,7 @@ function App() {
       <header className="md:hidden bg-emerald-600 text-white p-4 flex justify-between items-center sticky top-0 z-40 shadow-md">
         <div className="flex items-center gap-2">
            <div className="bg-white/20 p-2 rounded-lg"><LayoutDashboard className="w-5 h-5" /></div>
-           <h1 className="font-black tracking-tight">{familyProfile.familyName}</h1>
+           <h1 className="font-black tracking-tight">{familyProfile?.familyName || 'App Spese'}</h1>
         </div>
         <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-emerald-700 rounded-xl"><Menu className="w-6 h-6" /></button>
       </header>
@@ -400,7 +418,7 @@ function App() {
           <div className="flex items-center gap-3">
              <div className="bg-emerald-600 p-2.5 rounded-2xl shadow-lg shadow-emerald-100 text-white"><LayoutDashboard className="w-6 h-6" /></div>
              <div>
-               <h1 className="font-black text-gray-800 tracking-tighter">{familyProfile.familyName}</h1>
+               <h1 className="font-black text-gray-800 tracking-tighter">{familyProfile?.familyName || 'App Spese'}</h1>
                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{user?.email?.split('@')[0] || 'Utente'}</p>
              </div>
           </div>
