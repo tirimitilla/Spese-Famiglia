@@ -1,40 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
 import { RecurringExpense, Frequency, Store, CustomField } from '../types';
-import { Repeat, Plus, Trash2, CalendarClock, Bell, Pencil, Save, X as CloseIcon, Info, LayoutList } from 'lucide-react';
+import { Repeat, Plus, Trash2, CalendarClock, Bell, Info, LayoutList } from 'lucide-react';
 
 interface RecurringManagerProps {
   recurringExpenses: RecurringExpense[];
   stores: Store[];
   onAddRecurring: (product: string, amount: number, store: string, frequency: Frequency, nextDate: string, reminderDays: number, customFields: CustomField[]) => void;
-  onUpdateRecurring: (updated: RecurringExpense) => void;
   onDeleteRecurring: (id: string) => void;
 }
-
-const FrequencyBadge = ({ freq }: { freq: Frequency }) => {
-  const colors: Record<string, string> = {
-    settimanale: 'bg-blue-100 text-blue-700 border-blue-200',
-    mensile: 'bg-purple-100 text-purple-700 border-purple-200',
-    annuale: 'bg-indigo-100 text-indigo-700 border-indigo-200'
-  };
-  return (
-    <span className={`text-[9px] px-2 py-0.5 rounded-full border font-black uppercase tracking-tighter ${colors[freq] || 'bg-gray-100 text-gray-600'}`}>
-      {freq}
-    </span>
-  );
-};
 
 export const RecurringManager: React.FC<RecurringManagerProps> = ({ 
   recurringExpenses, 
   stores, 
   onAddRecurring, 
-  onUpdateRecurring,
   onDeleteRecurring 
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   
-  // State per form principale
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [product, setProduct] = useState('');
   const [amount, setAmount] = useState('');
   const [store, setStore] = useState(stores[0]?.name || '');
@@ -42,7 +25,6 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
   const [nextDate, setNextDate] = useState(new Date().toISOString().split('T')[0]);
   const [reminderDays, setReminderDays] = useState('0');
   
-  // State per campi personalizzati
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
@@ -51,21 +33,7 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
     if (!store && stores.length > 0) setStore(stores[0].name);
   }, [stores]);
 
-  const handleEdit = (item: RecurringExpense) => {
-    setEditingId(item.id);
-    setProduct(item.product);
-    setAmount(item.amount.toString());
-    setStore(item.store);
-    setFrequency(item.frequency);
-    setNextDate(item.nextDueDate);
-    setReminderDays(item.reminderDays.toString());
-    setCustomFields(item.customFields || []);
-    if (!isOpen) setIsOpen(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   const resetForm = () => {
-    setEditingId(null);
     setProduct('');
     setAmount('');
     setFrequency('mensile');
@@ -91,24 +59,9 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!product || !amount || !store || !nextDate) return;
-
-    if (editingId) {
-        onUpdateRecurring({
-            id: editingId,
-            product,
-            amount: parseFloat(amount),
-            store,
-            frequency,
-            nextDueDate: nextDate,
-            reminderDays: parseInt(reminderDays) || 0,
-            customFields
-        });
-    } else {
-        onAddRecurring(product, parseFloat(amount), store, frequency, nextDate, parseInt(reminderDays) || 0, customFields);
-    }
-    
+    onAddRecurring(product, parseFloat(amount), store, frequency, nextDate, parseInt(reminderDays) || 0, customFields);
     resetForm();
-    if (!editingId) setIsOpen(false);
+    setIsOpen(false);
   };
 
   return (
@@ -129,10 +82,10 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
       {isOpen && (
         <div className="mt-5 animate-in fade-in slide-in-from-top-2 duration-200">
           
-          <div className={`p-5 rounded-2xl border mb-6 transition-all ${editingId ? 'bg-indigo-50 border-indigo-200 shadow-inner' : 'bg-purple-50 border-purple-100'}`}>
-            <h4 className={`text-[10px] font-bold uppercase mb-4 flex items-center gap-2 ${editingId ? 'text-indigo-800' : 'text-purple-800'}`}>
-                {editingId ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                {editingId ? 'Modifica Voce Ricorrente' : 'Nuova Scadenza'}
+          <div className="p-5 rounded-2xl border mb-6 bg-purple-50 border-purple-100">
+            <h4 className="text-[10px] font-bold uppercase mb-4 flex items-center gap-2 text-purple-800">
+                <Plus className="w-3.5 h-3.5" />
+                Nuova Scadenza
             </h4>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -253,24 +206,12 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
                         className="w-full rounded-xl border border-gray-300 bg-white p-3.5 text-base focus:border-purple-500 outline-none shadow-sm text-center font-bold"
                     />
                 </div>
-                <div className="flex gap-2">
-                    {editingId && (
-                        <button
-                            type="button"
-                            onClick={resetForm}
-                            className="bg-white text-gray-500 border border-gray-300 p-3.5 rounded-xl hover:bg-gray-100 transition-colors shadow-sm"
-                            title="Annulla"
-                        >
-                            <CloseIcon className="w-6 h-6" />
-                        </button>
-                    )}
-                    <button
-                        type="submit"
-                        className={`px-8 py-3.5 rounded-xl text-white font-bold transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${editingId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-purple-600 hover:bg-purple-700'}`}
-                    >
-                        {editingId ? <><Save className="w-5 h-5" /> Aggiorna</> : <><Plus className="w-5 h-5" /> Salva</>}
-                    </button>
-                </div>
+                <button
+                    type="submit"
+                    className="px-8 py-3.5 rounded-xl text-white font-bold transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700"
+                >
+                    <Plus className="w-5 h-5" /> Salva
+                </button>
               </div>
             </form>
           </div>
@@ -286,7 +227,6 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
                                 <div className="flex-1">
                                     <div className="font-bold text-gray-800 text-lg flex items-center gap-2 flex-wrap">
                                         {item.product}
-                                        <FrequencyBadge freq={item.frequency} />
                                         {isDue && <span className="bg-red-500 text-[10px] text-white px-2 py-0.5 rounded-full animate-pulse font-bold">SCADUTO</span>}
                                     </div>
                                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-4 mt-2 font-medium">
@@ -307,15 +247,8 @@ export const RecurringManager: React.FC<RecurringManagerProps> = ({
                                 </div>
                                 <div className="flex gap-1 ml-4">
                                     <button 
-                                        onClick={() => handleEdit(item)}
-                                        className="p-3 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                                        title="Modifica"
-                                    >
-                                        <Pencil className="w-5 h-5" />
-                                    </button>
-                                    <button 
                                         onClick={() => onDeleteRecurring(item.id)}
-                                        className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                        className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                                         title="Elimina"
                                     >
                                         <Trash2 className="w-5 h-5" />

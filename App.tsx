@@ -5,6 +5,7 @@ import {
   Income, CategoryDefinition, ShoppingItem, RecurringExpense, CustomField 
 } from './types';
 import * as SupabaseService from './services/supabaseService';
+import { supabase } from './supabaseClient';
 import { LoginScreen } from './components/LoginScreen';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
@@ -57,23 +58,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const initApp = async () => {
-      try {
-        const currentUser = await SupabaseService.getCurrentUser();
-        if (currentUser) {
-          setUser(currentUser);
+    setIsReady(false);
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        try {
           const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
+          } else {
+            setFamilyProfile(null);
           }
+        } catch (err) {
+          console.error("Errore nel caricamento dati famiglia:", err);
+          setFamilyProfile(null);
         }
-      } catch (err) {
-        console.error("Errore inizializzazione:", err);
-      } finally {
-        setIsReady(true);
+      } else {
+        setFamilyProfile(null);
       }
+      setIsReady(true);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
     };
-    initApp();
   }, []);
 
   const loadFamilyData = async (familyId: string) => {
@@ -329,17 +339,6 @@ function App() {
                 alert(`ERRORE SUPABASE: ${technicalDetail}\n\nAssicurati che la tabella 'recurring_expenses' esista e che le policy RLS permettano l'inserimento.`);
                 // Rollback UI
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
-              }
-            }}
-            onUpdateRecurring={async (updated) => {
-              const originalState = [...recurringExpenses];
-              setRecurringExpenses(prev => prev.map(r => r.id === updated.id ? updated : r));
-              try {
-                await SupabaseService.updateRecurringInSupabase(updated);
-              } catch (error: any) {
-                console.error(error);
-                alert("Errore aggiornamento: " + error.message);
-                setRecurringExpenses(originalState);
               }
             }}
             onDeleteRecurring={async (id) => {

@@ -195,28 +195,6 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
   }
 };
 
-export const updateRecurringInSupabase = async (item: RecurringExpense) => {
-  const payload: any = { 
-    product: item.product, 
-    amount: Number(item.amount), 
-    store: item.store, 
-    frequency: item.frequency, 
-    next_due_date: item.nextDueDate, 
-    reminder_days: Number(item.reminderDays) || 0
-  };
-
-  if (item.customFields) {
-    payload.custom_fields = item.customFields;
-  }
-
-  const { error } = await supabase.from('recurring_expenses').update(payload).eq('id', item.id);
-  
-  if (error) {
-    console.error("DEBUG - Errore Tecnico Supabase Update:", error);
-    throw error;
-  }
-};
-
 export const deleteRecurringFromSupabase = async (id: string) => {
   const { error } = await supabase.from('recurring_expenses').delete().eq('id', id);
   if (error) throw error;
