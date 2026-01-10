@@ -15,28 +15,25 @@ export interface ReceiptData {
   items: ReceiptItem[];
 }
 
-const getAI = () => {
+// Helper per ottenere l'istanza AI garantendo che la chiave sia presente
+const getAIClient = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey || apiKey === "" || apiKey === "undefined" || apiKey.length < 10) {
-    return null;
+  if (!apiKey) {
+    throw new Error("Configurazione incompleta: API_KEY non trovata nell'ambiente.");
   }
-  try {
-    return new GoogleGenAI({ apiKey });
-  } catch (e) {
-    return null;
-  }
+  return new GoogleGenAI({ apiKey });
 };
 
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
-    const ai = getAI();
-    if (!ai) return "Alimentari";
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Categorizza "${product}" acquistato da "${store}". Scegli tra: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Restituisci SOLO il nome della categoria.`,
     });
     return response.text?.trim() || "Alimentari";
   } catch (error) {
+    console.error("Errore categorizzazione:", error);
     return "Alimentari";
   }
 };
@@ -44,8 +41,7 @@ export const categorizeExpense = async (product: string, store: string): Promise
 export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> => {
   if (expenses.length === 0) return "Nessuna spesa.";
   try {
-    const ai = getAI();
-    if (!ai) return "Configura API_KEY per i consigli.";
+    const ai = getAIClient();
     const summary = expenses.map(e => `${e.product} (€${e.total})`).join(', ');
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -68,15 +64,14 @@ export const findFlyerOffers = async (city: string, stores: string[]): Promise<F
 
 export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<{ success: boolean; data?: ReceiptData; error?: string }> => {
   try {
-    const ai = getAI();
-    if (!ai) return { success: false, error: "API_KEY mancante." };
+    const ai = getAIClient();
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           { inlineData: { mimeType, data: base64Image } },
-          { text: "Estrai i dati da questo scontrino. Se un prezzo o quantità non è chiaro, usa 0 o 1 come default. Categorizza ogni prodotto." }
+          { text: "Estrai i dati da questo scontrino. Se un prezzo o quantità non è chiaro, usa 0 o 1 come default. Categorizza ogni prodotto in una delle seguenti categorie: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro." }
         ]
       },
       config: {
@@ -112,6 +107,9 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
     return { success: true, data: JSON.parse(text) };
   } catch (error: any) {
     console.error("Errore Parse Scontrino:", error);
-    return { success: false, error: "Errore durante l'analisi dell'immagine. Riprova con una foto più nitida." };
+    if (error.message?.includes("API_KEY")) {
+        return { success: false, error: "La chiave API non è stata configurata correttamente su Vercel. Controlla le Environment Variables." };
+    }
+    return { success: false, error: error.message || "Errore durante l'analisi dell'immagine." };
   }
 };
