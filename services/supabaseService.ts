@@ -32,6 +32,8 @@ export const getCurrentUser = async () => {
 /* --- FAMILY & MEMBERS --- */
 export const getFamilyForUser = async (userId: string) => {
   try {
+    if (!userId) return { data: null, error: new Error("UserID mancante") };
+    
     const { data, error } = await supabase
       .from('members')
       .select('family_id')
@@ -68,6 +70,7 @@ export const fetchFamilyMembers = async (familyId: string) => {
 };
 
 export const createFamilyAndJoin = async (userId: string, familyName: string, userEmail: string) => {
+  // Verifica se esiste già un'associazione
   const { data: existing } = await getFamilyForUser(userId);
   if (existing?.family_id) return existing.family_id;
 
@@ -96,7 +99,7 @@ export const createFamilyAndJoin = async (userId: string, familyName: string, us
 
 export const joinFamily = async (userId: string, familyId: string, name: string, isAdmin: boolean = false) => {
   const { data: existing } = await getFamilyForUser(userId);
-  if (existing) return { data: existing, error: null };
+  if (existing?.family_id) return { data: existing, error: null };
 
   return await supabase.from('members').insert({
     user_id: userId,
@@ -163,14 +166,14 @@ export const addStoreToSupabase = async (familyId: string, store: Store) => {
 export const fetchRecurring = async (familyId: string): Promise<RecurringExpense[]> => {
   const { data, error } = await supabase.from('recurring_expenses').select('*').eq('family_id', familyId);
   if (error) return [];
+  // Fixed: Correctly mapping the database snake_case field 'reminder_days' to the interface camelCase field 'reminderDays'.
   return (data || []).map((r: any) => ({ 
     id: r.id, product: r.product, amount: Number(r.amount), store: r.store, frequency: r.frequency, 
-    nextDueDate: r.next_due_date, reminder_days: r.reminder_days, customFields: r.custom_fields || [] 
+    nextDueDate: r.next_due_date, reminderDays: r.reminder_days, customFields: r.custom_fields || [] 
   }));
 };
 
 export const addRecurringToSupabase = async (familyId: string, item: RecurringExpense) => {
-  // Prepariamo un payload pulito
   const payload: any = { 
     id: item.id, 
     family_id: familyId, 
@@ -182,7 +185,6 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
     reminder_days: Number(item.reminderDays) || 0
   };
   
-  // Aggiungiamo i campi personalizzati solo se popolati, per retrocompatibilità schema
   if (item.customFields && item.customFields.length > 0) {
     payload.custom_fields = item.customFields;
   }

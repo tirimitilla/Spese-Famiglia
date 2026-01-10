@@ -6,12 +6,13 @@ import * as SupabaseService from '../services/supabaseService';
 import { supabase } from '../supabaseClient';
 
 interface LoginScreenProps {
+  user?: any;
   onSetupComplete: (profile: FamilyProfile) => void;
   onUserLogin?: (user: any) => void;
   isSupabaseAuth?: boolean;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUserLogin, isSupabaseAuth }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ user, onSetupComplete, onUserLogin, isSupabaseAuth }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -60,10 +61,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
     try {
-      const user = await SupabaseService.getCurrentUser();
-      if (!user) throw new Error("Utente non autenticato.");
-      const familyId = await SupabaseService.createFamilyAndJoin(user.id, familyName, user.email || 'Utente');
+      const activeUser = user || await SupabaseService.getCurrentUser();
+      if (!activeUser) throw new Error("Utente non autenticato.");
+      const familyId = await SupabaseService.createFamilyAndJoin(activeUser.id, familyName, activeUser.email || 'Utente');
       onSetupComplete({ id: familyId, familyName, members: [] });
     } catch (err: any) {
       setError(err.message);
@@ -75,12 +77,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSetupComplete, onUse
   const handleJoinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
     try {
-      const user = await SupabaseService.getCurrentUser();
-      if (!user) throw new Error("Utente non autenticato.");
+      const activeUser = user || await SupabaseService.getCurrentUser();
+      if (!activeUser) throw new Error("Utente non autenticato.");
       const { data: profile } = await supabase.from('families').select('*').eq('id', familyIdToJoin.trim()).single();
       if (!profile) throw new Error("Gruppo non trovato. Controlla il codice.");
-      await SupabaseService.joinFamily(user.id, profile.id, user.email?.split('@')[0] || 'Utente');
+      await SupabaseService.joinFamily(activeUser.id, profile.id, activeUser.email?.split('@')[0] || 'Utente');
       onSetupComplete({ id: profile.id, familyName: profile.family_name, members: [] });
     } catch (err: any) {
       setError(err.message);

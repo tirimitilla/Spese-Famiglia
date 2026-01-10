@@ -190,6 +190,7 @@ function App() {
   // Se non c'è utente o se l'utente è loggato ma non ha ancora un profilo famiglia
   if (!user || !familyProfile) {
     return <LoginScreen 
+      user={user}
       onSetupComplete={handleSetupComplete} 
       onUserLogin={(u) => { 
         setUser(u);
