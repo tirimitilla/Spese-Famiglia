@@ -17,9 +17,9 @@ export interface ReceiptData {
 
 // Helper per ottenere l'istanza AI garantendo che la chiave sia presente
 const getAIClient = () => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("Configurazione incompleta: API_KEY non trovata nell'ambiente.");
+    throw new Error("Configurazione incompleta: GEMINI_API_KEY non trovata nell'ambiente.");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -67,11 +67,11 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
     const ai = getAIClient();
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.1-pro-preview',
       contents: {
         parts: [
           { inlineData: { mimeType, data: base64Image } },
-          { text: "Estrai i dati da questo scontrino. Se un prezzo o quantità non è chiaro, usa 0 o 1 come default. Categorizza ogni prodotto in una delle seguenti categorie: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro." }
+          { text: "Analizza questa immagine di uno scontrino in modo estremamente dettagliato. Estrai TUTTI i prodotti elencati, senza saltarne nessuno. Se un prezzo o quantità non è chiaro, usa 0 o 1 come default. Categorizza ogni prodotto in una delle seguenti categorie: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro." }
         ]
       },
       config: {

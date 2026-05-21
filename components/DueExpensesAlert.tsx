@@ -34,7 +34,7 @@ export const DueExpensesAlert: React.FC<DueExpensesAlertProps> = ({ dueExpenses,
         <div className="flex-1">
           <h3 className="text-sm font-bold text-gray-800 mb-1">Pagamenti in Arrivo</h3>
           <p className="text-xs text-gray-500 mb-3">
-            Hai {dueExpenses.length} pagamenti da gestire.
+            Hai {dueExpenses.length} pagamenti da gestire. Clicca "Paga" per registrarli e aggiornare la scadenza.
           </p>
           
           <div className="space-y-2">

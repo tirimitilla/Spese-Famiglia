@@ -148,6 +148,56 @@ function App() {
       console.error("Failed to save offer preferences", e);
     }
   };
+  
+  const handleProcessRecurringExpense = async (recurringItem: RecurringExpense) => {
+     if (!familyProfile) return;
+ 
+     // Save state for potential rollback
+     const originalExpenses = [...expenses];
+     const originalRecurringExpenses = [...recurringExpenses];
+ 
+     // 1. Optimistic UI Update: Create a new expense and update the recurring item
+     const currentMember = familyProfile.members.find(m => m.userId === user.id);
+     const memberId = currentMember?.id;
+
+     const newExpense: Expense = {
+       id: crypto.randomUUID(),
+       product: `Pagamento: ${recurringItem.product}`,
+       quantity: 1,
+       unitPrice: recurringItem.amount,
+       total: recurringItem.amount,
+       store: recurringItem.store,
+       date: new Date().toISOString(),
+       category: 'Utenze', // Default category
+       memberId: memberId
+     };
+ 
+     const currentDueDate = new Date(recurringItem.nextDueDate);
+     let newDueDate = new Date(currentDueDate);
+     const today = new Date();
+     if (newDueDate < today) newDueDate = today;
+ 
+     if (recurringItem.frequency === 'mensile') newDueDate.setMonth(newDueDate.getMonth() + 1);
+     else if (recurringItem.frequency === 'settimanale') newDueDate.setDate(newDueDate.getDate() + 7);
+     else if (recurringItem.frequency === 'annuale') newDueDate.setFullYear(newDueDate.getFullYear() + 1);
+ 
+     const updatedRecurringItem = { ...recurringItem, nextDueDate: newDueDate.toISOString().split('T')[0] };
+ 
+     setExpenses(prev => [newExpense, ...prev]);
+     setRecurringExpenses(prev => prev.map(r => r.id === updatedRecurringItem.id ? updatedRecurringItem : r));
+ 
+     try {
+       // 2. Perform backend operations
+       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
+       await SupabaseService.updateRecurringInSupabase(updatedRecurringItem);
+     } catch (error: any) {
+       // 3. Rollback UI on failure
+       console.error("Errore durante il processamento della spesa ricorrente:", error);
+       alert("Errore: " + (error.message || "Impossibile registrare il pagamento."));
+       setExpenses(originalExpenses);
+       setRecurringExpenses(originalRecurringExpenses);
+     }
+   };
 
   const productHistory = useMemo(() => {
     const history: Record<string, string> = {};
@@ -208,23 +258,47 @@ function App() {
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
             <ReceiptScanner onScanComplete={async (data) => {
-              for (const item of data.items) {
-                const newExp: Expense = {
+              const currentMember = familyProfile.members.find(m => m.userId === user.id);
+              const memberId = currentMember?.id;
+              
+              // Base date for all items in the receipt
+              const baseDate = data.date ? new Date(data.date) : new Date();
+              
+              // Create unique expenses for each item
+              const newExpenses: Expense[] = data.items.map((item, index) => {
+                // Add index milliseconds to ensure unique timestamps for items from the same receipt
+                const itemDate = new Date(baseDate.getTime() + index);
+                
+                return {
                   id: crypto.randomUUID(),
-                  product: item.product, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total,
-                  store: data.store || 'Negozio', date: new Date().toISOString(), category: item.category || 'Altro'
+                  product: item.product,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  total: item.total,
+                  store: data.store || 'Negozio',
+                  date: itemDate.toISOString(),
+                  category: item.category || 'Altro',
+                  memberId: memberId
                 };
-                setExpenses(prev => [newExp, ...prev]);
-                try {
-                  await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
-                } catch (e: any) {
-                  console.error(e);
-                }
+              });
+
+              console.log(`Aggiunta di ${newExpenses.length} spese dalla scansione...`);
+              setExpenses(prev => [...newExpenses, ...prev]);
+
+              try {
+                // Salva tutte le spese in un'unica operazione bulk per maggiore affidabilità
+                await SupabaseService.addExpensesToSupabase(familyProfile.id, newExpenses);
+                console.log("Salvataggio bulk completato con successo.");
+              } catch (e: any) {
+                console.error("Errore durante il salvataggio delle spese scansionate:", e);
+                alert("Errore nel salvataggio di alcune spese: " + (e.message || "Errore sconosciuto"));
+                // In caso di errore critico, ricarichiamo i dati per essere sicuri della consistenza
+                await loadFamilyData(familyProfile.id);
               }
             }} />
             <DueExpensesAlert 
               dueExpenses={recurringExpenses.filter(r => new Date(r.nextDueDate) <= new Date())} 
-              onProcessExpense={() => setActiveView('ricorrenti')} 
+              onProcessExpense={handleProcessRecurringExpense}
             />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -291,15 +365,19 @@ function App() {
               stores={stores} members={familyProfile.members} 
               existingProducts={Object.keys(productHistory)} productHistory={productHistory} 
               onAddExpense={async (p, q, u, t, s) => {
+                const currentMember = familyProfile.members.find(m => m.userId === user.id);
+                const memberId = currentMember?.id;
+                
                 const newExp: Expense = {
                   id: crypto.randomUUID(), product: p, quantity: q, unitPrice: u, total: t, store: s,
-                  date: new Date().toISOString(), category: 'Altro'
+                  date: new Date().toISOString(), category: 'Altro', memberId: memberId
                 };
                 setExpenses(prev => [newExp, ...prev]);
                 try {
                   await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
                 } catch (e: any) {
                   alert("Errore salvataggio spesa: " + e.message);
+                  setExpenses(prev => prev.filter(exp => exp.id !== newExp.id));
                 }
               }} 
               isAnalyzing={false}
@@ -349,16 +427,27 @@ function App() {
             recurringExpenses={recurringExpenses} stores={stores}
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
-              // Ottimismo UI
               setRecurringExpenses(prev => [...prev, newItem]);
               try {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
               } catch (error: any) {
                 console.error("Errore salvataggio ricorrente:", error);
                 alert(`ERRORE SUPABASE: ${error.message || "Errore sconosciuto"}`);
-                // Rollback UI
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
+            }}            
+            onUpdateRecurring={async (updatedItem) => {
+                const originalItem = recurringExpenses.find(item => item.id === updatedItem.id);
+                setRecurringExpenses(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+                try {
+                    await SupabaseService.updateRecurringInSupabase(updatedItem);
+                } catch(error: any) {
+                    if (originalItem) {
+                        setRecurringExpenses(prev => prev.map(item => item.id === originalItem.id ? originalItem : item));
+                    }
+                    const errorMessage = error?.message || 'Si è verificato un errore sconosciuto durante l\'aggiornamento.';
+                    alert("Errore aggiornamento: " + errorMessage);
+                }
             }}
             onDeleteRecurring={async (id) => {
               const itemToDelete = recurringExpenses.find(r => r.id === id);

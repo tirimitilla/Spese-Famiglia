@@ -3,7 +3,7 @@ import { Camera, Image as ImageIcon, ScanLine, CheckCircle, Sparkles, AlertTrian
 import { parseReceiptImage, ReceiptData } from '../services/geminiService';
 
 interface ReceiptScannerProps {
-  onScanComplete: (data: ReceiptData) => void;
+  onScanComplete: (data: ReceiptData) => Promise<void> | void;
 }
 
 type ScanStatus = 'idle' | 'scanning' | 'success' | 'error';
@@ -70,7 +70,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onScanComplete }
       const result = await parseReceiptImage(base64, mimeType);
       
       if (result.success && result.data) {
-        onScanComplete(result.data);
+        await onScanComplete(result.data);
         setFoundItemsCount(result.data.items.length);
         setStatus('success');
         setTimeout(() => setStatus('idle'), 3000);

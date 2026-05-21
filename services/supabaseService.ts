@@ -129,6 +129,24 @@ export const addExpenseToSupabase = async (familyId: string, expense: Expense) =
   if (error) throw error;
 };
 
+export const addExpensesToSupabase = async (familyId: string, expenses: Expense[]) => {
+  const payload = expenses.map(expense => ({
+    id: expense.id,
+    family_id: familyId,
+    product: expense.product,
+    quantity: expense.quantity,
+    unit_price: expense.unitPrice,
+    total: expense.total,
+    store: expense.store,
+    date: expense.date,
+    category: expense.category,
+    member_id: expense.memberId
+  }));
+
+  const { error } = await supabase.from('expenses').insert(payload);
+  if (error) throw error;
+};
+
 export const deleteExpenseFromSupabase = async (id: string) => {
   const { error } = await supabase.from('expenses').delete().eq('id', id);
   if (error) throw error;
@@ -193,6 +211,29 @@ export const addRecurringToSupabase = async (familyId: string, item: RecurringEx
   
   if (error) {
     console.error("DEBUG - Errore Tecnico Supabase:", error);
+    throw error;
+  }
+};
+
+export const updateRecurringInSupabase = async (item: RecurringExpense) => {
+  const payload = {
+    product: item.product,
+    amount: Number(item.amount),
+    store: item.store,
+    frequency: item.frequency,
+    next_due_date: item.nextDueDate,
+    reminder_days: Number(item.reminderDays) || 0,
+    custom_fields: item.customFields || [],
+  };
+
+  const { error } = await supabase
+    .from('recurring_expenses')
+    .update(payload)
+    .eq('id', item.id);
+
+  if (error) {
+    // FIX: Log the specific error message for better debugging instead of the generic object.
+    console.error("Errore aggiornamento spesa ricorrente:", error.message || JSON.stringify(error));
     throw error;
   }
 };
