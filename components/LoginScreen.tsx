@@ -10,9 +10,18 @@ interface LoginScreenProps {
   onSetupComplete: (profile: FamilyProfile) => void;
   onUserLogin?: (user: any) => void;
   isSupabaseAuth?: boolean;
+  onEnterLocalMode?: () => void;
+  connectionError?: boolean;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ user, onSetupComplete, onUserLogin, isSupabaseAuth }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ 
+  user, 
+  onSetupComplete, 
+  onUserLogin, 
+  isSupabaseAuth,
+  onEnterLocalMode,
+  connectionError
+}) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -132,6 +141,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ user, onSetupComplete,
               </button>
             </form>
           )}
+
+          {onEnterLocalMode && (
+            <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+              <button 
+                type="button"
+                onClick={onEnterLocalMode} 
+                className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50 py-3.5 rounded-2xl font-bold text-xs uppercase tracking-tight transition-all"
+              >
+                Usa la Modalità Locale (Senza Cloud)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -145,6 +166,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ user, onSetupComplete,
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Spese Famiglia AI</h2>
         <p className="text-gray-500 text-sm mb-8">Gestione spese intelligente e 100% privata.</p>
+
+        {connectionError && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-left flex items-start gap-2.5 mb-6">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-xs">Connessione Cloud non riuscita</p>
+              <p className="text-[10px] text-amber-700 mt-1">Impossibile connettersi al database di sincronizzazione. Puoi comunque utilizzare l'app salvando i dati localmente.</p>
+            </div>
+          </div>
+        )}
 
         {success && <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-xs mb-4 flex items-center gap-2 justify-center font-bold"><CheckCircle2 className="w-4 h-4" /> {success}</div>}
 
@@ -170,6 +201,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ user, onSetupComplete,
               <button type="button" onClick={() => setAuthMode('google')} className="text-xs text-gray-400 w-full text-center">Torna al login Google</button>
             </div>
           </form>
+        )}
+
+        {onEnterLocalMode && (
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <button 
+              type="button"
+              onClick={onEnterLocalMode} 
+              className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50 py-3.5 rounded-2xl font-bold text-xs uppercase tracking-tight transition-all"
+            >
+              Usa la Modalità Locale (Senza Cloud)
+            </button>
+          </div>
         )}
       </div>
     </div>

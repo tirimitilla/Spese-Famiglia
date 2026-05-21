@@ -45,6 +45,8 @@ function App() {
   });
 
   const [isReady, setIsReady] = useState(false);
+  const [isLocalMode, setIsLocalMode] = useState<boolean>(() => localStorage.getItem('familyApp_isLocalMode') === 'true');
+  const [connectionError, setConnectionError] = useState(false);
 
   useEffect(() => {
     try {
@@ -57,7 +59,83 @@ function App() {
     }
   }, []);
 
-  // Inizializzazione Sessione e Listener Auth
+  const loadLocalData = () => {
+    try {
+      const localExps = localStorage.getItem('familyApp_expenses');
+      const localRecs = localStorage.getItem('familyApp_recurringExpenses');
+      const localShops = localStorage.getItem('familyApp_shoppingList');
+      const localIncs = localStorage.getItem('familyApp_incomes');
+      const localStrs = localStorage.getItem('familyApp_stores');
+      const localProfile = localStorage.getItem('familyApp_familyProfile');
+      
+      setExpenses(localExps ? JSON.parse(localExps) : []);
+      setRecurringExpenses(localRecs ? JSON.parse(localRecs) : []);
+      setShoppingList(localShops ? JSON.parse(localShops) : []);
+      setIncomes(localIncs ? JSON.parse(localIncs) : []);
+      if (localStrs) {
+        setStores(JSON.parse(localStrs));
+      } else {
+        setStores(DEFAULT_STORES);
+      }
+
+      const defaultProfile: FamilyProfile = {
+        id: 'local-family-id',
+        familyName: 'Offline (Locale)',
+        members: [
+          { id: '1', name: 'Utente Locale', color: 'bg-emerald-500', isAdmin: true, userId: 'local-user' }
+        ],
+        createdAt: Date.now()
+      };
+      setFamilyProfile(localProfile ? JSON.parse(localProfile) : defaultProfile);
+      setUser({ id: 'local-user', email: 'locale@dispositivo', isLocal: true });
+    } catch (e) {
+      console.error("Errore nel caricamento dei dati locali:", e);
+    }
+  };
+
+  const enableLocalMode = () => {
+    localStorage.setItem('familyApp_isLocalMode', 'true');
+    setIsLocalMode(true);
+    
+    if (!localStorage.getItem('familyApp_familyProfile')) {
+      const defaultProfile: FamilyProfile = {
+        id: 'local-family-id',
+        familyName: 'Offline (Locale)',
+        members: [
+          { id: '1', name: 'Utente Locale', color: 'bg-emerald-500', isAdmin: true, userId: 'local-user' }
+        ],
+        createdAt: Date.now()
+      };
+      localStorage.setItem('familyApp_familyProfile', JSON.stringify(defaultProfile));
+    }
+    
+    loadLocalData();
+  };
+
+  const disableLocalMode = () => {
+    localStorage.removeItem('familyApp_isLocalMode');
+    setIsLocalMode(false);
+    setUser(null);
+    setFamilyProfile(null);
+    setExpenses([]);
+    setRecurringExpenses([]);
+    setShoppingList([]);
+    setIncomes([]);
+    setStores(DEFAULT_STORES);
+  };
+
+  // Persistenza LocalStorage in Modalità Locale
+  useEffect(() => {
+    if (isLocalMode) {
+      localStorage.setItem('familyApp_expenses', JSON.stringify(expenses));
+      localStorage.setItem('familyApp_recurringExpenses', JSON.stringify(recurringExpenses));
+      localStorage.setItem('familyApp_shoppingList', JSON.stringify(shoppingList));
+      localStorage.setItem('familyApp_incomes', JSON.stringify(incomes));
+      localStorage.setItem('familyApp_stores', JSON.stringify(stores));
+    }
+  }, [isLocalMode, expenses, recurringExpenses, shoppingList, incomes, stores]);
+
+  // Inizializzazione Sessione e Listener Auth o LocalMode
   useEffect(() => {
     const handleAuthChange = async (session: any) => {
       const currentUser = session?.user ?? null;
@@ -83,16 +161,29 @@ function App() {
 
     const initAuth = async () => {
       setIsReady(false);
+      
+      const isLocalModeSaved = localStorage.getItem('familyApp_isLocalMode') === 'true';
+      if (isLocalModeSaved) {
+        setIsLocalMode(true);
+        loadLocalData();
+        setIsReady(true);
+        // Ritorniamo un mock unsubscribe
+        return { subscription: { unsubscribe: () => {} } };
+      }
+
       try {
         const { data: { session } } = await supabase.auth.getSession();
         await handleAuthChange(session);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Errore durante getSession:", err);
+        setConnectionError(true);
         setIsReady(true);
       }
 
       const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        await handleAuthChange(session);
+        if (localStorage.getItem('familyApp_isLocalMode') !== 'true') {
+          await handleAuthChange(session);
+        }
       });
 
       return authListener;
@@ -132,6 +223,7 @@ function App() {
       }
     } catch (err) {
       console.error("Errore caricamento dati:", err);
+      setConnectionError(true);
     }
   };
 
@@ -185,6 +277,8 @@ function App() {
  
      setExpenses(prev => [newExpense, ...prev]);
      setRecurringExpenses(prev => prev.map(r => r.id === updatedRecurringItem.id ? updatedRecurringItem : r));
+
+     if (isLocalMode) return;
  
      try {
        // 2. Perform backend operations
@@ -246,9 +340,14 @@ function App() {
         setUser(u);
         SupabaseService.getFamilyForUser(u.id).then(({data}) => {
           if (data?.family_id) loadFamilyData(data.family_id);
+        }).catch(err => {
+          console.error("Errore check famiglia:", err);
+          setConnectionError(true);
         });
       }} 
       isSupabaseAuth={!!user} 
+      onEnterLocalMode={enableLocalMode}
+      connectionError={connectionError}
     />;
   }
 
@@ -284,6 +383,8 @@ function App() {
 
               console.log(`Aggiunta di ${newExpenses.length} spese dalla scansione...`);
               setExpenses(prev => [...newExpenses, ...prev]);
+
+              if (isLocalMode) return;
 
               try {
                 // Salva tutte le spese in un'unica operazione bulk per maggiore affidabilità
@@ -330,6 +431,7 @@ function App() {
             onAddItem={async (p, s) => {
               const newItem = { id: crypto.randomUUID(), product: p, store: s, completed: false };
               setShoppingList(prev => [...prev, newItem]);
+              if (isLocalMode) return;
               try {
                 await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
               } catch (e) {
@@ -341,6 +443,7 @@ function App() {
               if (item) {
                 const updated = { ...item, completed: !item.completed };
                 setShoppingList(prev => prev.map(i => i.id === id ? updated : i));
+                if (isLocalMode) return;
                 try {
                   await SupabaseService.updateShoppingItemInSupabase(updated);
                 } catch (e) {
@@ -350,6 +453,7 @@ function App() {
             }}
             onDeleteItem={async (id) => {
               setShoppingList(prev => prev.filter(i => i.id !== id));
+              if (isLocalMode) return;
               try {
                 await SupabaseService.deleteShoppingItemFromSupabase(id);
               } catch (e) {
@@ -373,6 +477,7 @@ function App() {
                   date: new Date().toISOString(), category: 'Altro', memberId: memberId
                 };
                 setExpenses(prev => [newExp, ...prev]);
+                if (isLocalMode) return;
                 try {
                   await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
                 } catch (e: any) {
@@ -386,6 +491,7 @@ function App() {
               expenses={expenses} stores={stores} 
               onDelete={async (id) => {
                 setExpenses(prev => prev.filter(e => e.id !== id));
+                if (isLocalMode) return;
                 try {
                   await SupabaseService.deleteExpenseFromSupabase(id);
                 } catch (e) {
@@ -405,6 +511,7 @@ function App() {
             onAddIncome={async (s, a, d) => {
               const newInc = { id: crypto.randomUUID(), source: s, amount: a, date: d };
               setIncomes(prev => [...prev, newInc]);
+              if (isLocalMode) return;
               try {
                 await SupabaseService.addIncomeToSupabase(familyProfile.id, newInc);
               } catch (e) {
@@ -413,6 +520,7 @@ function App() {
             }}
             onDeleteIncome={async (id) => {
               setIncomes(prev => prev.filter(i => i.id !== id));
+              if (isLocalMode) return;
               try {
                 await SupabaseService.deleteIncomeFromSupabase(id);
               } catch (e) {
@@ -428,6 +536,7 @@ function App() {
             onAddRecurring={async (p, a, s, f, d, r, c) => {
               const newItem = { id: crypto.randomUUID(), product: p, amount: a, store: s, frequency: f, nextDueDate: d, reminderDays: r, customFields: c };
               setRecurringExpenses(prev => [...prev, newItem]);
+              if (isLocalMode) return;
               try {
                 await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
               } catch (error: any) {
@@ -439,6 +548,7 @@ function App() {
             onUpdateRecurring={async (updatedItem) => {
                 const originalItem = recurringExpenses.find(item => item.id === updatedItem.id);
                 setRecurringExpenses(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+                if (isLocalMode) return;
                 try {
                     await SupabaseService.updateRecurringInSupabase(updatedItem);
                 } catch(error: any) {
@@ -453,6 +563,7 @@ function App() {
               const itemToDelete = recurringExpenses.find(r => r.id === id);
               if (!itemToDelete) return;
               setRecurringExpenses(prev => prev.filter(r => r.id !== id));
+              if (isLocalMode) return;
               try {
                 await SupabaseService.deleteRecurringFromSupabase(id);
               } catch(error: any) {
@@ -480,6 +591,7 @@ function App() {
             <StoreManager onAddStore={async (name) => {
               const newStore = { id: crypto.randomUUID(), name };
               setStores(prev => [...prev, newStore]);
+              if (isLocalMode) return;
               try {
                 await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
               } catch (e) {
@@ -509,7 +621,18 @@ function App() {
              <div className="bg-emerald-600 p-2.5 rounded-2xl shadow-lg shadow-emerald-100 text-white"><LayoutDashboard className="w-6 h-6" /></div>
              <div>
                <h1 className="font-black text-gray-800 tracking-tighter">{familyProfile?.familyName || 'App Spese'}</h1>
-               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{user?.email?.split('@')[0] || 'Utente'}</p>
+               <div className="flex flex-col gap-0.5 mt-0.5">
+                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none">{user?.email?.split('@')[0] || 'Utente'}</span>
+                 {isLocalMode ? (
+                   <span className="inline-flex items-center self-start text-[8px] font-black tracking-tight text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/50 mt-1 uppercase leading-none">
+                     ● Locale (No Cloud)
+                   </span>
+                 ) : (
+                   <span className="inline-flex items-center self-start text-[8px] font-black tracking-tight text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/50 mt-1 uppercase leading-none">
+                     ● Cloud Attivo
+                   </span>
+                 )}
+               </div>
              </div>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-gray-400"><X className="w-6 h-6" /></button>
@@ -525,8 +648,18 @@ function App() {
           <NavItem view="famiglia" icon={Users} label="Famiglia & Negozi" />
         </nav>
         <div className="p-4 border-t border-gray-50 space-y-2">
-          <button onClick={async () => { await SupabaseService.signOut(); window.location.reload(); }} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold text-sm hover:bg-red-50 rounded-xl transition-colors">
-            <LogOut className="w-5 h-5" /> Esci dall'App
+          <button 
+            onClick={async () => { 
+              if (isLocalMode) {
+                disableLocalMode();
+              } else {
+                await SupabaseService.signOut(); 
+                window.location.reload(); 
+              }
+            }} 
+            className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold text-sm hover:bg-red-50 rounded-xl transition-colors"
+          >
+            <LogOut className="w-5 h-5" /> {isLocalMode ? "Esci (Modalità Locale)" : "Esci dall'App"}
           </button>
         </div>
       </aside>
