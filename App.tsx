@@ -53,7 +53,7 @@ function App() {
     if (!isReady) {
       const timer = setTimeout(() => {
         setShowOfflineFallback(true);
-      }, 3500);
+      }, 15000);
       return () => clearTimeout(timer);
     } else {
       setShowOfflineFallback(false);
@@ -156,7 +156,7 @@ function App() {
       if (currentUser) {
         try {
           const fetchPromise = SupabaseService.getFamilyForUser(currentUser.id);
-          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 20000));
           const { data: memberData } = await Promise.race([fetchPromise, timeoutPromise]);
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
@@ -223,7 +223,7 @@ function App() {
         SupabaseService.fetchStores(familyId),
         SupabaseService.fetchIncomes(familyId)
       ]);
-      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500));
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 25000));
       
       const [profileRes, exps, recs, shops, strs, incs] = await Promise.race([fetchPromise, timeoutPromise]);
 

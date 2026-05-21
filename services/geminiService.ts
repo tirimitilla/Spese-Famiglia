@@ -21,14 +21,21 @@ const getAIClient = () => {
   if (!apiKey) {
     throw new Error("Configurazione incompleta: GEMINI_API_KEY non trovata nell'ambiente.");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
 };
 
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
     const ai = getAIClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: `Categorizza "${product}" acquistato da "${store}". Scegli tra: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Restituisci SOLO il nome della categoria.`,
     });
     return response.text?.trim() || "Alimentari";
@@ -44,7 +51,7 @@ export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> 
     const ai = getAIClient();
     const summary = expenses.map(e => `${e.product} (€${e.total})`).join(', ');
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: `Analizza queste spese e dai 2 consigli di risparmio brevi in italiano: ${summary}`,
     });
     return response.text || "Analisi non disponibile.";
@@ -67,7 +74,7 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
     const ai = getAIClient();
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.5-flash',
       contents: {
         parts: [
           { inlineData: { mimeType, data: base64Image } },
