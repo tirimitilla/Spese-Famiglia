@@ -47,6 +47,18 @@ function App() {
   const [isReady, setIsReady] = useState(false);
   const [isLocalMode, setIsLocalMode] = useState<boolean>(() => localStorage.getItem('familyApp_isLocalMode') === 'true');
   const [connectionError, setConnectionError] = useState(false);
+  const [showOfflineFallback, setShowOfflineFallback] = useState(false);
+
+  useEffect(() => {
+    if (!isReady) {
+      const timer = setTimeout(() => {
+        setShowOfflineFallback(true);
+      }, 3500);
+      return () => clearTimeout(timer);
+    } else {
+      setShowOfflineFallback(false);
+    }
+  }, [isReady]);
 
   useEffect(() => {
     try {
@@ -143,7 +155,9 @@ function App() {
 
       if (currentUser) {
         try {
-          const { data: memberData } = await SupabaseService.getFamilyForUser(currentUser.id);
+          const fetchPromise = SupabaseService.getFamilyForUser(currentUser.id);
+          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+          const { data: memberData } = await Promise.race([fetchPromise, timeoutPromise]);
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
           } else {
@@ -152,6 +166,7 @@ function App() {
         } catch (err) {
           console.error("Errore nel caricamento dati famiglia:", err);
           setFamilyProfile(null);
+          setConnectionError(true);
         }
       } else {
         setFamilyProfile(null);
@@ -172,7 +187,9 @@ function App() {
       }
 
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
         await handleAuthChange(session);
       } catch (err: any) {
         console.error("Errore durante getSession:", err);
@@ -198,7 +215,7 @@ function App() {
 
   const loadFamilyData = async (familyId: string) => {
     try {
-      const [profileRes, exps, recs, shops, strs, incs] = await Promise.all([
+      const fetchPromise = Promise.all([
         SupabaseService.getFamilyProfile(familyId),
         SupabaseService.fetchExpenses(familyId),
         SupabaseService.fetchRecurring(familyId),
@@ -206,8 +223,15 @@ function App() {
         SupabaseService.fetchStores(familyId),
         SupabaseService.fetchIncomes(familyId)
       ]);
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500));
+      
+      const [profileRes, exps, recs, shops, strs, incs] = await Promise.race([fetchPromise, timeoutPromise]);
 
-      if (profileRes.data) {
+      if (profileRes?.error) {
+        throw profileRes.error;
+      }
+
+      if (profileRes?.data) {
         const members = await SupabaseService.fetchFamilyMembers(familyId);
         setFamilyProfile({
           id: profileRes.data.id,
@@ -220,6 +244,8 @@ function App() {
         setShoppingList(shops);
         setIncomes(incs);
         if (strs && strs.length > 0) setStores(strs);
+      } else {
+        setFamilyProfile(null);
       }
     } catch (err) {
       console.error("Errore caricamento dati:", err);
@@ -322,10 +348,23 @@ function App() {
 
   if (!isReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="text-center max-w-sm w-full bg-white p-8 rounded-3xl border border-gray-100 shadow-xl">
           <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 font-bold tracking-tight">Accesso in corso...</p>
+          <p className="text-gray-800 font-bold tracking-tight text-lg mb-1">Inizializzazione...</p>
+          <p className="text-gray-400 text-xs mb-6">Verifica della sessione e connessione al cloud</p>
+          
+          {showOfflineFallback && (
+            <div className="pt-5 border-t border-gray-100 animate-in fade-in duration-500">
+              <p className="text-amber-600 font-bold text-xs mb-4">La connessione sta impiegando più tempo del previsto.</p>
+              <button 
+                onClick={enableLocalMode}
+                className="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50 py-3.5 rounded-2xl font-bold text-xs uppercase tracking-tight transition-all"
+              >
+                Usa la Modalità Locale (Offline)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

@@ -118,6 +118,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button onClick={() => setMode('join')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg ${mode === 'join' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>Unisciti</button>
           </div>
           
+          {connectionError && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-left flex items-start gap-2.5 mb-6">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-xs">Connessione Cloud non riuscita</p>
+                <p className="text-[10px] text-amber-700 mt-1">Impossibile recuperare i dati del tuo gruppo dal Cloud. Puoi usare la Modalità Locale offline per continuare subito senza perdere i tuoi inserimenti.</p>
+              </div>
+            </div>
+          )}
+
           {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-xs mb-4 flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {error}</div>}
           
           {mode === 'create' ? (
