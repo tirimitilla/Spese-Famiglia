@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { Expense, FlyerOffer } from "../types";
 
 export interface ReceiptItem {
@@ -15,32 +14,24 @@ export interface ReceiptData {
   items: ReceiptItem[];
 }
 
-// Helper per ottenere l'istanza AI garantendo che la chiave sia presente
-const getAIClient = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Configurazione incompleta: GEMINI_API_KEY non trovata nell'ambiente.");
-  }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
-  });
-};
-
 export const categorizeExpense = async (product: string, store: string): Promise<string> => {
   try {
-    const ai = getAIClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: `Categorizza "${product}" acquistato da "${store}". Scegli tra: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro. Restituisci SOLO il nome della categoria.`,
+    const response = await fetch('/api/categorize', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ product, store })
     });
-    return response.text?.trim() || "Alimentari";
+    
+    if (!response.ok) {
+      throw new Error(`Server returned status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.category || "Alimentari";
   } catch (error) {
-    console.error("Errore categorizzazione:", error);
+    console.error("Errore categorizzazione client:", error);
     return "Alimentari";
   }
 };
@@ -48,75 +39,54 @@ export const categorizeExpense = async (product: string, store: string): Promise
 export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> => {
   if (expenses.length === 0) return "Nessuna spesa.";
   try {
-    const ai = getAIClient();
-    const summary = expenses.map(e => `${e.product} (€${e.total})`).join(', ');
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: `Analizza queste spese e dai 2 consigli di risparmio brevi in italiano: ${summary}`,
+    const response = await fetch('/api/spending-analysis', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ expenses })
     });
-    return response.text || "Analisi non disponibile.";
+
+    if (!response.ok) {
+      throw new Error(`Server returned status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.analysis || "Analisi non disponibile.";
   } catch (error) {
+    console.error("Errore analisi client:", error);
     return "Impossibile generare l'analisi.";
   }
 };
 
 export const findFlyerOffers = async (city: string, stores: string[]): Promise<FlyerOffer[]> => {
-    return stores.map(store => ({
-        storeName: store,
-        flyerLink: `https://www.google.com/search?q=volantino+${encodeURIComponent(store)}+${encodeURIComponent(city)}`,
-        validUntil: 'Vedi volantino',
-        topOffers: []
-    }));
+  return stores.map(store => ({
+    storeName: store,
+    flyerLink: `https://www.google.com/search?q=volantino+${encodeURIComponent(store)}+${encodeURIComponent(city)}`,
+    validUntil: 'Vedi volantino',
+    topOffers: []
+  }));
 };
 
 export const parseReceiptImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<{ success: boolean; data?: ReceiptData; error?: string }> => {
   try {
-    const ai = getAIClient();
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: {
-        parts: [
-          { inlineData: { mimeType, data: base64Image } },
-          { text: "Analizza questa immagine di uno scontrino in modo estremamente dettagliato. Estrai TUTTI i prodotti elencati, senza saltarne nessuno. Se un prezzo o quantità non è chiaro, usa 0 o 1 come default. Categorizza ogni prodotto in una delle seguenti categorie: Alimentari, Trasporti, Casa, Salute, Svago, Abbigliamento, Utenze, Altro." }
-        ]
+    const response = await fetch('/api/parse-receipt', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
       },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            store: { type: Type.STRING, description: "Nome del negozio" },
-            date: { type: Type.STRING, description: "Data nel formato YYYY-MM-DD" },
-            items: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  product: { type: Type.STRING },
-                  quantity: { type: Type.NUMBER },
-                  unitPrice: { type: Type.NUMBER },
-                  total: { type: Type.NUMBER },
-                  category: { type: Type.STRING }
-                },
-                required: ["product", "quantity", "unitPrice", "total", "category"]
-              }
-            }
-          },
-          required: ["store", "items"]
-        }
-      }
+      body: JSON.stringify({ base64Image, mimeType })
     });
 
-    const text = response.text;
-    if (!text) throw new Error("Risposta vuota dall'IA");
-    
-    return { success: true, data: JSON.parse(text) };
-  } catch (error: any) {
-    console.error("Errore Parse Scontrino:", error);
-    if (error.message?.includes("API_KEY")) {
-        return { success: false, error: "La chiave API non è stata configurata correttamente su Vercel. Controlla le Environment Variables." };
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Server error status: ${response.status}`);
     }
-    return { success: false, error: error.message || "Errore durante l'analisi dell'immagine." };
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.error("Errore Parse Scontrino client:", error);
+    return { success: false, error: error.message || "Errore durante l'analisi dell'immagine dallo scontrino." };
   }
 };
