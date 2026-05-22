@@ -160,8 +160,10 @@ function App() {
           const { data: memberData } = await Promise.race([fetchPromise, timeoutPromise]);
           if (memberData?.family_id) {
             await loadFamilyData(memberData.family_id);
+            setConnectionError(false);
           } else {
             setFamilyProfile(null);
+            setConnectionError(false);
           }
         } catch (err) {
           console.error("Errore nel caricamento dati famiglia:", err);
@@ -170,6 +172,7 @@ function App() {
         }
       } else {
         setFamilyProfile(null);
+        setConnectionError(false);
       }
       setIsReady(true);
     };
@@ -188,9 +191,10 @@ function App() {
 
       try {
         const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000));
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
         await handleAuthChange(session);
+        setConnectionError(false);
       } catch (err: any) {
         console.error("Errore durante getSession:", err);
         setConnectionError(true);
@@ -244,6 +248,7 @@ function App() {
         setShoppingList(shops);
         setIncomes(incs);
         if (strs && strs.length > 0) setStores(strs);
+        setConnectionError(false);
       } else {
         setFamilyProfile(null);
       }
@@ -377,8 +382,13 @@ function App() {
       onSetupComplete={handleSetupComplete} 
       onUserLogin={(u) => { 
         setUser(u);
+        setConnectionError(false);
         SupabaseService.getFamilyForUser(u.id).then(({data}) => {
-          if (data?.family_id) loadFamilyData(data.family_id);
+          if (data?.family_id) {
+            loadFamilyData(data.family_id);
+          } else {
+            setConnectionError(false);
+          }
         }).catch(err => {
           console.error("Errore check famiglia:", err);
           setConnectionError(true);
