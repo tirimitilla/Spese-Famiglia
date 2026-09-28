@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Member, FamilyProfile } from '../types';
 import { Users, UserPlus, Copy, CheckCircle, Shield, User, Loader2, Lock } from 'lucide-react';
-import { fetchFamilyMembers } from '../services/supabaseService';
+import { fetchFamilyMembers } from '../services/firebaseService';
 
 interface FamilyManagerProps {
   familyProfile: FamilyProfile;

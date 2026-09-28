@@ -1,0 +1,316 @@
+{
+  "entities": {
+    "Family": {
+      "title": "Family",
+      "description": "Represents a family or shared household budget space.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the family space."
+        },
+        "familyName": {
+          "type": "string",
+          "description": "Name of the family or group.",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "User ID of creator."
+        }
+      },
+      "required": ["id", "familyName", "createdAt", "createdBy"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Member of a family group.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Member document ID."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Auth UID of the member user."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the member.",
+          "maxLength": 100
+        },
+        "color": {
+          "type": "string",
+          "description": "Tailwind color class for the avatar badge.",
+          "maxLength": 50
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Whether the member has admin privileges in the family."
+        },
+        "joinedAt": {
+          "type": "string",
+          "description": "ISO timestamp when the member joined."
+        }
+      },
+      "required": ["id", "userId", "name", "color", "isAdmin"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "A single expense item recorded in the family budget.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of the expense."
+        },
+        "product": {
+          "type": "string",
+          "description": "Name or description of the product/service.",
+          "maxLength": 200
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Quantity purchased."
+        },
+        "unitPrice": {
+          "type": "number",
+          "description": "Price per unit."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total amount spent."
+        },
+        "store": {
+          "type": "string",
+          "description": "Store or merchant name.",
+          "maxLength": 100
+        },
+        "date": {
+          "type": "string",
+          "description": "Date or ISO string of the expense.",
+          "maxLength": 50
+        },
+        "category": {
+          "type": "string",
+          "description": "Expense category.",
+          "maxLength": 100
+        },
+        "memberId": {
+          "type": "string",
+          "description": "ID of the family member who made the expense.",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "product", "quantity", "unitPrice", "total", "store", "date", "category"]
+    },
+    "Income": {
+      "title": "Income",
+      "description": "Income entry for the family budget.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of the income."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of income.",
+          "maxLength": 100
+        },
+        "amount": {
+          "type": "number",
+          "description": "Income amount in EUR."
+        },
+        "date": {
+          "type": "string",
+          "description": "Date or month of income entry.",
+          "maxLength": 50
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "source", "amount", "date"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Custom store defined by the family.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of the store."
+        },
+        "name": {
+          "type": "string",
+          "description": "Store name.",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "RecurringExpense": {
+      "title": "RecurringExpense",
+      "description": "Recurring utility bill or subscription.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of the recurring item."
+        },
+        "product": {
+          "type": "string",
+          "description": "Product or subscription title.",
+          "maxLength": 200
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount due per cycle."
+        },
+        "store": {
+          "type": "string",
+          "description": "Vendor or service provider name.",
+          "maxLength": 100
+        },
+        "frequency": {
+          "type": "string",
+          "description": "Billing frequency (settimanale, mensile, annuale).",
+          "enum": ["settimanale", "mensile", "annuale"]
+        },
+        "nextDueDate": {
+          "type": "string",
+          "description": "Next due date (YYYY-MM-DD).",
+          "maxLength": 30
+        },
+        "reminderDays": {
+          "type": "number",
+          "description": "Days in advance to show reminder."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "product", "amount", "store", "frequency", "nextDueDate", "reminderDays"]
+    },
+    "ShoppingItem": {
+      "title": "ShoppingItem",
+      "description": "Item in the collaborative shopping list.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of shopping item."
+        },
+        "product": {
+          "type": "string",
+          "description": "Product name.",
+          "maxLength": 200
+        },
+        "store": {
+          "type": "string",
+          "description": "Store to purchase from.",
+          "maxLength": 100
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the item has been marked bought."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "product", "store", "completed"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account linking auth UID with their active family space.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User UID."
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address.",
+          "maxLength": 150
+        },
+        "familyId": {
+          "type": "string",
+          "description": "Active family workspace ID.",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account registration timestamp."
+        }
+      },
+      "required": ["id", "email"]
+    },
+    "TestConnection": {
+      "title": "TestConnection",
+      "description": "Health check connection document.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Status string."
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/test/{testId}": {
+      "schema": "TestConnection",
+      "description": "Health check connectivity test endpoint."
+    },
+    "/families/{familyId}": {
+      "schema": "Family",
+      "description": "Family workspaces defining household budget spaces."
+    },
+    "/families/{familyId}/members/{memberId}": {
+      "schema": "Member",
+      "description": "Members affiliated with the family workspace."
+    },
+    "/families/{familyId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expenses logged inside the family workspace."
+    },
+    "/families/{familyId}/incomes/{incomeId}": {
+      "schema": "Income",
+      "description": "Incomes logged inside the family workspace."
+    },
+    "/families/{familyId}/stores/{storeId}": {
+      "schema": "Store",
+      "description": "Custom stores saved in the family workspace."
+    },
+    "/families/{familyId}/recurring_expenses/{recurringExpenseId}": {
+      "schema": "RecurringExpense",
+      "description": "Recurring expenses and utility bill reminders."
+    },
+    "/families/{familyId}/shopping_list/{shoppingItemId}": {
+      "schema": "ShoppingItem",
+      "description": "Collaborative shopping checklist items."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile with their active family association."
+    }
+  }
+}

@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  DEFAULT_STORES, DEFAULT_CATEGORIES, Expense, Store, FamilyProfile, 
-  Income, CategoryDefinition, ShoppingItem, RecurringExpense, CustomField 
+  DEFAULT_STORES, Expense, Store, FamilyProfile, 
+  Income, ShoppingItem, RecurringExpense 
 } from './types';
-import * as SupabaseService from './services/supabaseService';
-import { supabase } from './supabaseClient';
+import * as FirebaseService from './services/firebaseService';
+import { auth } from './firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
@@ -21,13 +21,13 @@ import { OffersFinder } from './components/OffersFinder';
 import { ReceiptScanner } from './components/ReceiptScanner';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, Repeat, BarChart3, 
-  Wallet, Percent, Users, LogOut, Menu, X, Loader2 
+  Wallet, Percent, Users, LogOut, Menu, X, Loader2, Cloud 
 } from 'lucide-react';
 
 type View = 'dashboard' | 'shopping' | 'spese' | 'ricorrenti' | 'analisi' | 'bilancio' | 'offerte' | 'famiglia';
 
 function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<FirebaseUser | any>(null);
   const [familyProfile, setFamilyProfile] = useState<FamilyProfile | null>(null);
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -46,14 +46,13 @@ function App() {
 
   const [isReady, setIsReady] = useState(false);
   const [isLocalMode, setIsLocalMode] = useState<boolean>(() => localStorage.getItem('familyApp_isLocalMode') === 'true');
-  const [connectionError, setConnectionError] = useState(false);
   const [showOfflineFallback, setShowOfflineFallback] = useState(false);
 
   useEffect(() => {
     if (!isReady) {
       const timer = setTimeout(() => {
         setShowOfflineFallback(true);
-      }, 15000);
+      }, 2500);
       return () => clearTimeout(timer);
     } else {
       setShowOfflineFallback(false);
@@ -66,7 +65,7 @@ function App() {
       if (savedPrefs) {
         setOfferPreferences(JSON.parse(savedPrefs));
       }
-    } catch(e) {
+    } catch (e) {
       console.error("Failed to load offer preferences", e);
     }
   }, []);
@@ -99,7 +98,7 @@ function App() {
         createdAt: Date.now()
       };
       setFamilyProfile(localProfile ? JSON.parse(localProfile) : defaultProfile);
-      setUser({ id: 'local-user', email: 'locale@dispositivo', isLocal: true });
+      setUser({ uid: 'local-user', id: 'local-user', email: 'locale@dispositivo', isLocal: true });
     } catch (e) {
       console.error("Errore nel caricamento dei dati locali:", e);
     }
@@ -122,6 +121,7 @@ function App() {
     }
     
     loadLocalData();
+    setIsReady(true);
   };
 
   const disableLocalMode = () => {
@@ -147,116 +147,66 @@ function App() {
     }
   }, [isLocalMode, expenses, recurringExpenses, shoppingList, incomes, stores]);
 
-  // Inizializzazione Sessione e Listener Auth o LocalMode
-  useEffect(() => {
-    const handleAuthChange = async (session: any) => {
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-
-      if (currentUser) {
-        try {
-          const fetchPromise = SupabaseService.getFamilyForUser(currentUser.id);
-          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 20000));
-          const { data: memberData } = await Promise.race([fetchPromise, timeoutPromise]);
-          if (memberData?.family_id) {
-            await loadFamilyData(memberData.family_id);
-            setConnectionError(false);
-          } else {
-            setFamilyProfile(null);
-            setConnectionError(false);
-          }
-        } catch (err) {
-          console.error("Errore nel caricamento dati famiglia:", err);
-          setFamilyProfile(null);
-          setConnectionError(true);
-        }
-      } else {
-        setFamilyProfile(null);
-        setConnectionError(false);
-      }
-      setIsReady(true);
-    };
-
-    const initAuth = async () => {
-      setIsReady(false);
-      
-      const isLocalModeSaved = localStorage.getItem('familyApp_isLocalMode') === 'true';
-      if (isLocalModeSaved) {
-        setIsLocalMode(true);
-        loadLocalData();
-        setIsReady(true);
-        // Ritorniamo un mock unsubscribe
-        return { subscription: { unsubscribe: () => {} } };
-      }
-
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000));
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
-        await handleAuthChange(session);
-        setConnectionError(false);
-      } catch (err: any) {
-        console.error("Errore durante getSession:", err);
-        setConnectionError(true);
-        setIsReady(true);
-      }
-
-      const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (localStorage.getItem('familyApp_isLocalMode') !== 'true') {
-          await handleAuthChange(session);
-        }
-      });
-
-      return authListener;
-    };
-
-    const authInit = initAuth();
-
-    return () => {
-      authInit.then(res => res?.subscription.unsubscribe());
-    };
-  }, []);
-
   const loadFamilyData = async (familyId: string) => {
     try {
-      const fetchPromise = Promise.all([
-        SupabaseService.getFamilyProfile(familyId),
-        SupabaseService.fetchExpenses(familyId),
-        SupabaseService.fetchRecurring(familyId),
-        SupabaseService.fetchShoppingList(familyId),
-        SupabaseService.fetchStores(familyId),
-        SupabaseService.fetchIncomes(familyId)
+      const [profileRes, exps, recs, shops, strs, incs, members] = await Promise.all([
+        FirebaseService.getFamilyProfile(familyId).catch(() => ({ data: null, error: new Error("Profile load failed") })),
+        FirebaseService.fetchExpenses(familyId).catch(() => []),
+        FirebaseService.fetchRecurring(familyId).catch(() => []),
+        FirebaseService.fetchShoppingList(familyId).catch(() => []),
+        FirebaseService.fetchStores(familyId).catch(() => []),
+        FirebaseService.fetchIncomes(familyId).catch(() => []),
+        FirebaseService.fetchFamilyMembers(familyId).catch(() => [])
       ]);
-      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 25000));
-      
-      const [profileRes, exps, recs, shops, strs, incs] = await Promise.race([fetchPromise, timeoutPromise]);
-
-      if (profileRes?.error) {
-        throw profileRes.error;
-      }
 
       if (profileRes?.data) {
-        const members = await SupabaseService.fetchFamilyMembers(familyId);
         setFamilyProfile({
-          id: profileRes.data.id,
-          familyName: profileRes.data.family_name,
-          members: members,
-          createdAt: new Date(profileRes.data.created_at).getTime()
+          id: profileRes.data.id || familyId,
+          familyName: profileRes.data.familyName || 'Famiglia',
+          members: members || [],
+          createdAt: profileRes.data.createdAt ? new Date(profileRes.data.createdAt).getTime() : Date.now()
         });
-        setExpenses(exps);
-        setRecurringExpenses(recs);
-        setShoppingList(shops);
-        setIncomes(incs);
+        setExpenses(exps || []);
+        setRecurringExpenses(recs || []);
+        setShoppingList(shops || []);
+        setIncomes(incs || []);
         if (strs && strs.length > 0) setStores(strs);
-        setConnectionError(false);
+      }
+    } catch (err: any) {
+      console.warn("Avviso durante caricamento dati famiglia:", err?.message || err);
+    }
+  };
+
+  // Inizializzazione Sessione Firebase
+  useEffect(() => {
+    if (isLocalMode) {
+      loadLocalData();
+      setIsReady(true);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        try {
+          const { data } = await FirebaseService.getFamilyForUser(firebaseUser.uid);
+          if (data?.family_id) {
+            await loadFamilyData(data.family_id);
+          } else {
+            setFamilyProfile(null);
+          }
+        } catch (err) {
+          console.warn("Errore controllo famiglia utente:", err);
+          setFamilyProfile(null);
+        }
       } else {
         setFamilyProfile(null);
       }
-    } catch (err) {
-      console.error("Errore caricamento dati:", err);
-      setConnectionError(true);
-    }
-  };
+      setIsReady(true);
+    });
+
+    return () => unsubscribe();
+  }, [isLocalMode]);
 
   const handleSetupComplete = async (profile: FamilyProfile) => {
     await loadFamilyData(profile.id);
@@ -267,62 +217,58 @@ function App() {
     setOfferPreferences(newPrefs);
     try {
       localStorage.setItem('familyAppOfferPreferences', JSON.stringify(newPrefs));
-    } catch(e) {
+    } catch (e) {
       console.error("Failed to save offer preferences", e);
     }
   };
   
   const handleProcessRecurringExpense = async (recurringItem: RecurringExpense) => {
-     if (!familyProfile) return;
- 
-     // Save state for potential rollback
-     const originalExpenses = [...expenses];
-     const originalRecurringExpenses = [...recurringExpenses];
- 
-     // 1. Optimistic UI Update: Create a new expense and update the recurring item
-     const currentMember = familyProfile.members.find(m => m.userId === user.id);
-     const memberId = currentMember?.id;
+    if (!familyProfile) return;
 
-     const newExpense: Expense = {
-       id: crypto.randomUUID(),
-       product: `Pagamento: ${recurringItem.product}`,
-       quantity: 1,
-       unitPrice: recurringItem.amount,
-       total: recurringItem.amount,
-       store: recurringItem.store,
-       date: new Date().toISOString(),
-       category: 'Utenze', // Default category
-       memberId: memberId
-     };
- 
-     const currentDueDate = new Date(recurringItem.nextDueDate);
-     let newDueDate = new Date(currentDueDate);
-     const today = new Date();
-     if (newDueDate < today) newDueDate = today;
- 
-     if (recurringItem.frequency === 'mensile') newDueDate.setMonth(newDueDate.getMonth() + 1);
-     else if (recurringItem.frequency === 'settimanale') newDueDate.setDate(newDueDate.getDate() + 7);
-     else if (recurringItem.frequency === 'annuale') newDueDate.setFullYear(newDueDate.getFullYear() + 1);
- 
-     const updatedRecurringItem = { ...recurringItem, nextDueDate: newDueDate.toISOString().split('T')[0] };
- 
-     setExpenses(prev => [newExpense, ...prev]);
-     setRecurringExpenses(prev => prev.map(r => r.id === updatedRecurringItem.id ? updatedRecurringItem : r));
+    const originalExpenses = [...expenses];
+    const originalRecurringExpenses = [...recurringExpenses];
 
-     if (isLocalMode) return;
- 
-     try {
-       // 2. Perform backend operations
-       await SupabaseService.addExpenseToSupabase(familyProfile.id, newExpense);
-       await SupabaseService.updateRecurringInSupabase(updatedRecurringItem);
-     } catch (error: any) {
-       // 3. Rollback UI on failure
-       console.error("Errore durante il processamento della spesa ricorrente:", error);
-       alert("Errore: " + (error.message || "Impossibile registrare il pagamento."));
-       setExpenses(originalExpenses);
-       setRecurringExpenses(originalRecurringExpenses);
-     }
-   };
+    const currentMember = familyProfile.members.find(m => m.userId === (user?.uid || user?.id));
+    const memberId = currentMember?.id;
+
+    const newExpense: Expense = {
+      id: crypto.randomUUID(),
+      product: `Pagamento: ${recurringItem.product}`,
+      quantity: 1,
+      unitPrice: recurringItem.amount,
+      total: recurringItem.amount,
+      store: recurringItem.store,
+      date: new Date().toISOString(),
+      category: 'Utenze',
+      memberId: memberId
+    };
+
+    const currentDueDate = new Date(recurringItem.nextDueDate);
+    let newDueDate = new Date(currentDueDate);
+    const today = new Date();
+    if (newDueDate < today) newDueDate = today;
+
+    if (recurringItem.frequency === 'mensile') newDueDate.setMonth(newDueDate.getMonth() + 1);
+    else if (recurringItem.frequency === 'settimanale') newDueDate.setDate(newDueDate.getDate() + 7);
+    else if (recurringItem.frequency === 'annuale') newDueDate.setFullYear(newDueDate.getFullYear() + 1);
+
+    const updatedRecurringItem = { ...recurringItem, nextDueDate: newDueDate.toISOString().split('T')[0] };
+
+    setExpenses(prev => [newExpense, ...prev]);
+    setRecurringExpenses(prev => prev.map(r => r.id === updatedRecurringItem.id ? updatedRecurringItem : r));
+
+    if (isLocalMode) return;
+
+    try {
+      await FirebaseService.addExpenseToFirebase(familyProfile.id, newExpense);
+      await FirebaseService.updateRecurringInFirebase(familyProfile.id, updatedRecurringItem);
+    } catch (error: any) {
+      console.error("Errore durante il processamento della spesa ricorrente:", error);
+      alert("Errore: " + (error.message || "Impossibile registrare il pagamento."));
+      setExpenses(originalExpenses);
+      setRecurringExpenses(originalRecurringExpenses);
+    }
+  };
 
   const productHistory = useMemo(() => {
     const history: Record<string, string> = {};
@@ -357,7 +303,7 @@ function App() {
         <div className="text-center max-w-sm w-full bg-white p-8 rounded-3xl border border-gray-100 shadow-xl">
           <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
           <p className="text-gray-800 font-bold tracking-tight text-lg mb-1">Inizializzazione...</p>
-          <p className="text-gray-400 text-xs mb-6">Verifica della sessione e connessione al cloud</p>
+          <p className="text-gray-400 text-xs mb-6">Connessione a Firebase Cloud</p>
           
           {showOfflineFallback && (
             <div className="pt-5 border-t border-gray-100 animate-in fade-in duration-500">
@@ -375,29 +321,23 @@ function App() {
     );
   }
 
-  // Se non c'è utente o se l'utente è loggato ma non ha ancora un profilo famiglia
+  // Se non c'è utente o non ha ancora un profilo famiglia attivo
   if (!user || !familyProfile) {
-    return <LoginScreen 
-      user={user}
-      onSetupComplete={handleSetupComplete} 
-      onUserLogin={(u) => { 
-        setUser(u);
-        setConnectionError(false);
-        SupabaseService.getFamilyForUser(u.id).then(({data}) => {
+    return (
+      <LoginScreen 
+        user={user}
+        onSetupComplete={handleSetupComplete} 
+        onUserLogin={async (u) => { 
+          setUser(u);
+          const { data } = await FirebaseService.getFamilyForUser(u.uid || u.id);
           if (data?.family_id) {
-            loadFamilyData(data.family_id);
-          } else {
-            setConnectionError(false);
+            await loadFamilyData(data.family_id);
           }
-        }).catch(err => {
-          console.error("Errore check famiglia:", err);
-          setConnectionError(true);
-        });
-      }} 
-      isSupabaseAuth={!!user} 
-      onEnterLocalMode={enableLocalMode}
-      connectionError={connectionError}
-    />;
+        }} 
+        isFirebaseAuth={!!user} 
+        onEnterLocalMode={enableLocalMode}
+      />
+    );
   }
 
   const renderView = () => {
@@ -406,15 +346,12 @@ function App() {
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
             <ReceiptScanner onScanComplete={async (data) => {
-              const currentMember = familyProfile.members.find(m => m.userId === user.id);
+              const currentMember = familyProfile.members.find(m => m.userId === (user?.uid || user?.id));
               const memberId = currentMember?.id;
               
-              // Base date for all items in the receipt
               const baseDate = data.date ? new Date(data.date) : new Date();
               
-              // Create unique expenses for each item
               const newExpenses: Expense[] = data.items.map((item, index) => {
-                // Add index milliseconds to ensure unique timestamps for items from the same receipt
                 const itemDate = new Date(baseDate.getTime() + index);
                 
                 return {
@@ -430,19 +367,15 @@ function App() {
                 };
               });
 
-              console.log(`Aggiunta di ${newExpenses.length} spese dalla scansione...`);
               setExpenses(prev => [...newExpenses, ...prev]);
 
               if (isLocalMode) return;
 
               try {
-                // Salva tutte le spese in un'unica operazione bulk per maggiore affidabilità
-                await SupabaseService.addExpensesToSupabase(familyProfile.id, newExpenses);
-                console.log("Salvataggio bulk completato con successo.");
+                await FirebaseService.addExpensesToFirebase(familyProfile.id, newExpenses);
               } catch (e: any) {
-                console.error("Errore durante il salvataggio delle spese scansionate:", e);
-                alert("Errore nel salvataggio di alcune spese: " + (e.message || "Errore sconosciuto"));
-                // In caso di errore critico, ricarichiamo i dati per essere sicuri della consistenza
+                console.error("Errore salvataggio spese scansionate:", e);
+                alert("Errore nel salvataggio: " + (e.message || "Errore sconosciuto"));
                 await loadFamilyData(familyProfile.id);
               }
             }} />
@@ -482,7 +415,7 @@ function App() {
               setShoppingList(prev => [...prev, newItem]);
               if (isLocalMode) return;
               try {
-                await SupabaseService.addShoppingItemToSupabase(familyProfile.id, newItem);
+                await FirebaseService.addShoppingItemToFirebase(familyProfile.id, newItem);
               } catch (e) {
                 console.error(e);
               }
@@ -494,7 +427,7 @@ function App() {
                 setShoppingList(prev => prev.map(i => i.id === id ? updated : i));
                 if (isLocalMode) return;
                 try {
-                  await SupabaseService.updateShoppingItemInSupabase(updated);
+                  await FirebaseService.updateShoppingItemInFirebase(familyProfile.id, updated);
                 } catch (e) {
                   console.error(e);
                 }
@@ -504,7 +437,7 @@ function App() {
               setShoppingList(prev => prev.filter(i => i.id !== id));
               if (isLocalMode) return;
               try {
-                await SupabaseService.deleteShoppingItemFromSupabase(id);
+                await FirebaseService.deleteShoppingItemFromFirebase(familyProfile.id, id);
               } catch (e) {
                 console.error(e);
               }
@@ -518,7 +451,7 @@ function App() {
               stores={stores} members={familyProfile.members} 
               existingProducts={Object.keys(productHistory)} productHistory={productHistory} 
               onAddExpense={async (p, q, u, t, s) => {
-                const currentMember = familyProfile.members.find(m => m.userId === user.id);
+                const currentMember = familyProfile.members.find(m => m.userId === (user?.uid || user?.id));
                 const memberId = currentMember?.id;
                 
                 const newExp: Expense = {
@@ -528,7 +461,7 @@ function App() {
                 setExpenses(prev => [newExp, ...prev]);
                 if (isLocalMode) return;
                 try {
-                  await SupabaseService.addExpenseToSupabase(familyProfile.id, newExp);
+                  await FirebaseService.addExpenseToFirebase(familyProfile.id, newExp);
                 } catch (e: any) {
                   alert("Errore salvataggio spesa: " + e.message);
                   setExpenses(prev => prev.filter(exp => exp.id !== newExp.id));
@@ -542,13 +475,20 @@ function App() {
                 setExpenses(prev => prev.filter(e => e.id !== id));
                 if (isLocalMode) return;
                 try {
-                  await SupabaseService.deleteExpenseFromSupabase(id);
+                  await FirebaseService.deleteExpenseFromFirebase(familyProfile.id, id);
                 } catch (e) {
                   console.error(e);
                 }
               }} 
               onEdit={async (updated) => {
                 setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
+                if (!isLocalMode) {
+                  try {
+                    await FirebaseService.addExpenseToFirebase(familyProfile.id, updated);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }
               }} 
             />
           </div>
@@ -562,7 +502,7 @@ function App() {
               setIncomes(prev => [...prev, newInc]);
               if (isLocalMode) return;
               try {
-                await SupabaseService.addIncomeToSupabase(familyProfile.id, newInc);
+                await FirebaseService.addIncomeToFirebase(familyProfile.id, newInc);
               } catch (e) {
                 console.error(e);
               }
@@ -571,7 +511,7 @@ function App() {
               setIncomes(prev => prev.filter(i => i.id !== id));
               if (isLocalMode) return;
               try {
-                await SupabaseService.deleteIncomeFromSupabase(id);
+                await FirebaseService.deleteIncomeFromFirebase(familyProfile.id, id);
               } catch (e) {
                 console.error(e);
               }
@@ -587,26 +527,26 @@ function App() {
               setRecurringExpenses(prev => [...prev, newItem]);
               if (isLocalMode) return;
               try {
-                await SupabaseService.addRecurringToSupabase(familyProfile.id, newItem);
+                await FirebaseService.addRecurringToFirebase(familyProfile.id, newItem);
               } catch (error: any) {
                 console.error("Errore salvataggio ricorrente:", error);
-                alert(`ERRORE SUPABASE: ${error.message || "Errore sconosciuto"}`);
+                alert(`Errore: ${error.message || "Errore sconosciuto"}`);
                 setRecurringExpenses(prev => prev.filter(item => item.id !== newItem.id));
               }
             }}            
             onUpdateRecurring={async (updatedItem) => {
-                const originalItem = recurringExpenses.find(item => item.id === updatedItem.id);
-                setRecurringExpenses(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
-                if (isLocalMode) return;
-                try {
-                    await SupabaseService.updateRecurringInSupabase(updatedItem);
-                } catch(error: any) {
-                    if (originalItem) {
-                        setRecurringExpenses(prev => prev.map(item => item.id === originalItem.id ? originalItem : item));
-                    }
-                    const errorMessage = error?.message || 'Si è verificato un errore sconosciuto durante l\'aggiornamento.';
-                    alert("Errore aggiornamento: " + errorMessage);
+              const originalItem = recurringExpenses.find(item => item.id === updatedItem.id);
+              setRecurringExpenses(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+              if (isLocalMode) return;
+              try {
+                await FirebaseService.updateRecurringInFirebase(familyProfile.id, updatedItem);
+              } catch (error: any) {
+                if (originalItem) {
+                  setRecurringExpenses(prev => prev.map(item => item.id === originalItem.id ? originalItem : item));
                 }
+                const errorMessage = error?.message || 'Si è verificato un errore sconosciuto durante l\'aggiornamento.';
+                alert("Errore aggiornamento: " + errorMessage);
+              }
             }}
             onDeleteRecurring={async (id) => {
               const itemToDelete = recurringExpenses.find(r => r.id === id);
@@ -614,8 +554,8 @@ function App() {
               setRecurringExpenses(prev => prev.filter(r => r.id !== id));
               if (isLocalMode) return;
               try {
-                await SupabaseService.deleteRecurringFromSupabase(id);
-              } catch(error: any) {
+                await FirebaseService.deleteRecurringFromFirebase(familyProfile.id, id);
+              } catch (error: any) {
                 console.error(error);
                 alert("Errore eliminazione: " + error.message);
                 setRecurringExpenses(prev => [...prev, itemToDelete]);
@@ -626,13 +566,15 @@ function App() {
       case 'analisi':
         return <Analytics expenses={expenses} />;
       case 'offerte':
-        return <OffersFinder 
-          stores={stores} 
-          savedCity={offerPreferences.city} 
-          savedStores={offerPreferences.selectedStores} 
-          notificationsEnabled={offerPreferences.notificationsEnabled} 
-          onPreferencesChange={handlePreferencesChange} 
-        />;
+        return (
+          <OffersFinder 
+            stores={stores} 
+            savedCity={offerPreferences.city} 
+            savedStores={offerPreferences.selectedStores} 
+            notificationsEnabled={offerPreferences.notificationsEnabled} 
+            onPreferencesChange={handlePreferencesChange} 
+          />
+        );
       case 'famiglia':
         return (
           <div className="space-y-6">
@@ -642,7 +584,7 @@ function App() {
               setStores(prev => [...prev, newStore]);
               if (isLocalMode) return;
               try {
-                await SupabaseService.addStoreToSupabase(familyProfile.id, newStore);
+                await FirebaseService.addStoreToFirebase(familyProfile.id, newStore);
               } catch (e) {
                 console.error(e);
               }
@@ -677,8 +619,8 @@ function App() {
                      ● Locale (No Cloud)
                    </span>
                  ) : (
-                   <span className="inline-flex items-center self-start text-[8px] font-black tracking-tight text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/50 mt-1 uppercase leading-none">
-                     ● Cloud Attivo
+                   <span className="inline-flex items-center self-start text-[8px] font-black tracking-tight text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/50 mt-1 uppercase leading-none gap-1">
+                     <Cloud className="w-2.5 h-2.5" /> Firebase Cloud
                    </span>
                  )}
                </div>
@@ -702,13 +644,13 @@ function App() {
               if (isLocalMode) {
                 disableLocalMode();
               } else {
-                await SupabaseService.signOut(); 
+                await FirebaseService.signOut(); 
                 window.location.reload(); 
               }
             }} 
-            className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold text-sm hover:bg-red-50 rounded-xl transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-red-500 font-bold text-xs hover:bg-red-50 rounded-xl transition-colors"
           >
-            <LogOut className="w-5 h-5" /> {isLocalMode ? "Esci (Modalità Locale)" : "Esci dall'App"}
+            <LogOut className="w-4 h-4" /> {isLocalMode ? "Esci (Modalità Locale)" : "Esci dall'App"}
           </button>
         </div>
       </aside>

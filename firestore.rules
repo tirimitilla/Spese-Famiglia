@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Health check test connection document
+    match /test/{testId} {
+      allow read: if true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isFamilyMember(familyId) {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/families/$(familyId)) && 
+         get(/databases/$(database)/documents/families/$(familyId)).data.createdBy == request.auth.uid)
+      );
+    }
+
+    // Entity validation helpers
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'email']) &&
+        data.id is string && data.id == request.auth.uid &&
+        data.email is string && data.email.size() <= 150 &&
+        (!('familyId' in data) || (data.familyId is string && data.familyId.size() <= 128));
+    }
+
+    function isValidFamily(data) {
+      return data.keys().hasAll(['id', 'familyName', 'createdBy']) &&
+        data.id is string && isValidId(data.id) &&
+        data.familyName is string && data.familyName.size() > 0 && data.familyName.size() <= 100 &&
+        data.createdBy is string && data.createdBy == request.auth.uid;
+    }
+
+    function isValidMember(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'color', 'isAdmin']) &&
+        data.id is string && isValidId(data.id) &&
+        data.userId is string && isValidId(data.userId) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.color is string && data.color.size() <= 50 &&
+        data.isAdmin is bool;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['id', 'product', 'quantity', 'unitPrice', 'total', 'store', 'date', 'category']) &&
+        data.id is string && isValidId(data.id) &&
+        data.product is string && data.product.size() > 0 && data.product.size() <= 200 &&
+        data.quantity is number && data.quantity >= 0 &&
+        data.unitPrice is number &&
+        data.total is number &&
+        data.store is string && data.store.size() <= 100 &&
+        data.date is string && data.date.size() <= 50 &&
+        data.category is string && data.category.size() <= 100 &&
+        (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 128));
+    }
+
+    function isValidIncome(data) {
+      return data.keys().hasAll(['id', 'source', 'amount', 'date']) &&
+        data.id is string && isValidId(data.id) &&
+        data.source is string && data.source.size() > 0 && data.source.size() <= 100 &&
+        data.amount is number &&
+        data.date is string && data.date.size() <= 50;
+    }
+
+    function isValidStore(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+        data.id is string && isValidId(data.id) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    function isValidRecurring(data) {
+      return data.keys().hasAll(['id', 'product', 'amount', 'store', 'frequency', 'nextDueDate', 'reminderDays']) &&
+        data.id is string && isValidId(data.id) &&
+        data.product is string && data.product.size() > 0 && data.product.size() <= 200 &&
+        data.amount is number &&
+        data.store is string && data.store.size() <= 100 &&
+        data.frequency in ['settimanale', 'mensile', 'annuale'] &&
+        data.nextDueDate is string && data.nextDueDate.size() <= 30 &&
+        data.reminderDays is number;
+    }
+
+    function isValidShoppingItem(data) {
+      return data.keys().hasAll(['id', 'product', 'store', 'completed']) &&
+        data.id is string && isValidId(data.id) &&
+        data.product is string && data.product.size() > 0 && data.product.size() <= 200 &&
+        data.store is string && data.store.size() <= 100 &&
+        data.completed is bool;
+    }
+
+    // User profile mappings
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUserProfile(incoming());
+      allow delete: if isOwner(userId);
+      allow list: if false;
+    }
+
+    // Family workspaces
+    match /families/{familyId} {
+      allow get: if isValidId(familyId) && (
+        isFamilyMember(familyId) ||
+        (isSignedIn() && existing().createdBy == request.auth.uid)
+      );
+      allow create: if isValidId(familyId) && isSignedIn() && isValidFamily(incoming());
+      allow update: if isValidId(familyId) && isFamilyMember(familyId) && isValidFamily(incoming());
+      allow delete: if isValidId(familyId) && isSignedIn() && existing().createdBy == request.auth.uid;
+      allow list: if false;
+
+      // Sub-collections under family
+      match /members/{memberId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isSignedIn() && isValidId(memberId) && isValidMember(incoming()) && (
+          incoming().userId == request.auth.uid || isFamilyMember(familyId)
+        );
+        allow update: if isFamilyMember(familyId) && isValidId(memberId) && isValidMember(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(memberId);
+      }
+
+      match /expenses/{expenseId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isFamilyMember(familyId) && isValidId(expenseId) && isValidExpense(incoming());
+        allow update: if isFamilyMember(familyId) && isValidId(expenseId) && isValidExpense(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(expenseId);
+      }
+
+      match /incomes/{incomeId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isFamilyMember(familyId) && isValidId(incomeId) && isValidIncome(incoming());
+        allow update: if isFamilyMember(familyId) && isValidId(incomeId) && isValidIncome(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(incomeId);
+      }
+
+      match /stores/{storeId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isFamilyMember(familyId) && isValidId(storeId) && isValidStore(incoming());
+        allow update: if isFamilyMember(familyId) && isValidId(storeId) && isValidStore(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(storeId);
+      }
+
+      match /recurring_expenses/{recurringExpenseId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isFamilyMember(familyId) && isValidId(recurringExpenseId) && isValidRecurring(incoming());
+        allow update: if isFamilyMember(familyId) && isValidId(recurringExpenseId) && isValidRecurring(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(recurringExpenseId);
+      }
+
+      match /shopping_list/{shoppingItemId} {
+        allow get, list: if isFamilyMember(familyId);
+        allow create: if isFamilyMember(familyId) && isValidId(shoppingItemId) && isValidShoppingItem(incoming());
+        allow update: if isFamilyMember(familyId) && isValidId(shoppingItemId) && isValidShoppingItem(incoming());
+        allow delete: if isFamilyMember(familyId) && isValidId(shoppingItemId);
+      }
+    }
+  }
+}

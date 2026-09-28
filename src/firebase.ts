@@ -1,1 +1,1 @@
-// Firebase configuration removed.
+export * from '../firebase';
