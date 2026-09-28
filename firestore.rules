@@ -42,9 +42,9 @@ service cloud.firestore {
 
     // Entity validation helpers
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['id', 'email']) &&
+      return data.keys().hasAll(['id']) &&
         data.id is string && data.id == request.auth.uid &&
-        data.email is string && data.email.size() <= 150 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
         (!('familyId' in data) || (data.familyId is string && data.familyId.size() <= 128));
     }
 
@@ -120,10 +120,7 @@ service cloud.firestore {
 
     // Family workspaces
     match /families/{familyId} {
-      allow get: if isValidId(familyId) && (
-        isFamilyMember(familyId) ||
-        (isSignedIn() && existing().createdBy == request.auth.uid)
-      );
+      allow get: if isSignedIn() && isValidId(familyId);
       allow create: if isValidId(familyId) && isSignedIn() && isValidFamily(incoming());
       allow update: if isValidId(familyId) && isFamilyMember(familyId) && isValidFamily(incoming());
       allow delete: if isValidId(familyId) && isSignedIn() && existing().createdBy == request.auth.uid;

@@ -164,8 +164,24 @@ export const fetchFamilyMembers = async (familyId: string): Promise<Member[]> =>
   }
 };
 
-export const createFamilyAndJoin = async (userId: string, familyName: string, userEmail: string): Promise<string> => {
-  const familyId = 'fam_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+export const createFamilyAndJoin = async (userId: string, familyName: string, userEmail: string, customFamilyId?: string): Promise<string> => {
+  let familyId = 'fam_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const cleanCustom = customFamilyId?.trim();
+  if (cleanCustom && cleanCustom.length >= 2 && /^[a-zA-Z0-9_\-]+$/.test(cleanCustom)) {
+    // Check if the chosen custom ID already exists
+    try {
+      const existingFam = await getDoc(doc(db, 'families', cleanCustom));
+      if (existingFam.exists()) {
+        throw new Error("Il codice gruppo scelto è già in uso. Scegline un altro o lascialo vuoto per generarne uno automatico.");
+      }
+      familyId = cleanCustom;
+    } catch (checkErr: any) {
+      if (checkErr.message?.includes("già in uso")) throw checkErr;
+      // otherwise use cleanCustom
+      familyId = cleanCustom;
+    }
+  }
+
   const famPath = `families/${familyId}`;
   
   try {
@@ -206,7 +222,16 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
   const famPath = `families/${cleanFamilyId}`;
   
   try {
-    const famSnap = await getDoc(doc(db, 'families', cleanFamilyId));
+    let famSnap;
+    try {
+      famSnap = await getDoc(doc(db, 'families', cleanFamilyId));
+    } catch (readErr: any) {
+      if (readErr?.message?.includes('permission') || readErr?.code === 'permission-denied') {
+        throw new Error("Codice gruppo non trovato o non valido. Verifica il codice inserito.");
+      }
+      throw readErr;
+    }
+
     if (!famSnap.exists()) {
       throw new Error("Gruppo famiglia non trovato. Verifica il codice inserito.");
     }
@@ -222,13 +247,22 @@ export const joinFamily = async (userId: string, familyId: string, name: string,
     });
 
     // Update user profile
+    const currentUser = auth.currentUser;
     await setDoc(doc(db, 'users', userId), {
       id: userId,
+      email: currentUser?.email || '',
       familyId: cleanFamilyId
     }, { merge: true });
 
     return { success: true, family: famSnap.data() };
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message && (
+      error.message.includes("Gruppo famiglia non trovato") ||
+      error.message.includes("Codice gruppo non trovato") ||
+      error.message.includes("già in uso")
+    )) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.WRITE, famPath);
   }
 };

@@ -32,6 +32,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [password, setPassword] = useState('');
   const [familyName, setFamilyName] = useState('');
   const [familyIdToJoin, setFamilyIdToJoin] = useState('');
+  const [customFamilyCode, setCustomFamilyCode] = useState('');
   const [mode, setMode] = useState<'create' | 'join'>('create');
   const [authMode, setAuthMode] = useState<'google' | 'email'>('google');
   const [isRegistering, setIsRegistering] = useState(false);
@@ -47,6 +48,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
     if (msg.includes('auth/email-already-in-use')) {
       return "Questa email è già registrata. Effettua l'accesso.";
+    }
+    if (msg.includes('Gruppo famiglia non trovato') || msg.includes('Codice gruppo non trovato')) {
+      return "Gruppo famiglia non trovato. Verifica il codice inserito o creane uno nuovo.";
+    }
+    if (msg.includes('già in uso')) {
+      return "Questo codice gruppo è già utilizzato da un'altra famiglia. Scegline un altro.";
+    }
+    if (msg.includes('Missing or insufficient permissions')) {
+      return "Codice non trovato o permessi non autorizzati. Se il gruppo non esiste ancora, puoi crearlo nella scheda 'Nuovo Gruppo'.";
     }
     return msg;
   };
@@ -101,7 +111,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       const familyId = await FirebaseService.createFamilyAndJoin(
         activeUser.uid, 
         familyName.trim(), 
-        activeUser.email || 'Utente'
+        activeUser.email || 'Utente',
+        customFamilyCode.trim() || undefined
       );
       onSetupComplete({ id: familyId, familyName: familyName.trim(), members: [] });
     } catch (err: any) {
@@ -169,9 +180,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs mb-4 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs mb-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{error}</span>
+              </div>
+              {mode === 'join' && familyIdToJoin.trim() && (
+                <div className="pt-2 border-t border-red-200/60 flex items-center justify-between">
+                  <span className="text-[11px] text-red-600">Vuoi crearlo tu con questo codice?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomFamilyCode(familyIdToJoin.trim());
+                      setFamilyName(`Famiglia ${familyIdToJoin.trim()}`);
+                      setMode('create');
+                      setError('');
+                    }}
+                    className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-300 hover:bg-emerald-50 transition shadow-xs"
+                  >
+                    Crea con codice {familyIdToJoin.trim()}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -188,6 +218,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   required
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  Codice Gruppo <span className="text-gray-400 font-normal">(Opzionale)</span>
+                </label>
+                <input 
+                  type="text" 
+                  value={customFamilyCode}
+                  onChange={(e) => setCustomFamilyCode(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))}
+                  placeholder="Es. 1234 oppure lascia vuoto per codice auto"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-mono"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Puoi inserire un codice a scelta (es. 1234) da comunicare agli altri membri.
+                </p>
+              </div>
+
               <button 
                 type="submit" 
                 disabled={loading}
@@ -204,7 +251,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   type="text" 
                   value={familyIdToJoin}
                   onChange={(e) => setFamilyIdToJoin(e.target.value)}
-                  placeholder="Es. fam_abc123456"
+                  placeholder="Es. 1234 o fam_abc123456"
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-mono"
                   required
                 />
