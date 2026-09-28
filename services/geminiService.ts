@@ -24,14 +24,15 @@ export const categorizeExpense = async (product: string, store: string): Promise
       body: JSON.stringify({ product, store })
     });
     
-    if (!response.ok) {
-      throw new Error(`Server returned status ${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      return "Alimentari";
     }
-    
+
     const data = await response.json();
     return data.category || "Alimentari";
   } catch (error) {
-    console.error("Errore categorizzazione client:", error);
+    console.warn("Categorizzazione automatica non disponibile, uso default:", error);
     return "Alimentari";
   }
 };
@@ -47,15 +48,16 @@ export const getSpendingAnalysis = async (expenses: Expense[]): Promise<string> 
       body: JSON.stringify({ expenses })
     });
 
-    if (!response.ok) {
-      throw new Error(`Server returned status ${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      return "Analisi temporaneamente non disponibile.";
     }
 
     const data = await response.json();
     return data.analysis || "Analisi non disponibile.";
   } catch (error) {
     console.error("Errore analisi client:", error);
-    return "Impossibile generare l'analisi.";
+    return "Impossibile generare l'analisi al momento.";
   }
 };
 
@@ -78,15 +80,30 @@ export const parseReceiptImage = async (base64Image: string, mimeType: string = 
       body: JSON.stringify({ base64Image, mimeType })
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Server error status: ${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const rawText = await response.text().catch(() => "");
+      console.error("Risposta non-JSON ricevuta dal server:", rawText.slice(0, 200));
+      return {
+        success: false,
+        error: "Il server non ha risposto in formato JSON. Verifica che il server sia attivo e che GEMINI_API_KEY sia configurata."
+      };
     }
 
     const data = await response.json();
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || `Errore del server (Codice ${response.status})`
+      };
+    }
+
     return { success: true, data };
   } catch (error: any) {
     console.error("Errore Parse Scontrino client:", error);
-    return { success: false, error: error.message || "Errore durante l'analisi dell'immagine dallo scontrino." };
+    return {
+      success: false,
+      error: error.message || "Errore di connessione durante l'analisi dello scontrino."
+    };
   }
 };
