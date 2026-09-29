@@ -6,7 +6,7 @@ export function setupApiRoutes(app: express.Express) {
   const getAIClient = () => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("Configurazione incompleta: la chiave d'ambiente GEMINI_API_KEY non è configurata sul server.");
+      throw new Error("Chiave GEMINI_API_KEY mancante. Configurala nelle Environment Variables su Vercel (Settings -> Environment Variables).");
     }
     return new GoogleGenAI({
       apiKey,
